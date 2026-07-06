@@ -1,4 +1,9 @@
-local URL = "https://raw.githubusercontent.com/fannyf123/GAG-Autofarm/main/GAG_Autofarm_Delta.lua"
+local URLS = {
+    "https://raw.githubusercontent.com/fannyf123/GAG-Autofarm/main/GAG_Autofarm_Delta.lua",
+    "https://cdn.jsdelivr.net/gh/fannyf123/GAG-Autofarm@main/GAG_Autofarm_Delta.lua",
+    "https://fastly.jsdelivr.net/gh/fannyf123/GAG-Autofarm@main/GAG_Autofarm_Delta.lua",
+    "https://raw.fastgit.org/fannyf123/GAG-Autofarm/main/GAG_Autofarm_Delta.lua",
+}
 
 local function show(title, message)
     local Players = game:GetService("Players")
@@ -10,7 +15,7 @@ local function show(title, message)
     local frame = Instance.new("Frame")
     frame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
     frame.BorderSizePixel = 0
-    frame.Size = UDim2.new(1, -24, 0, 260)
+    frame.Size = UDim2.new(1, -24, 0, 300)
     frame.Position = UDim2.new(0, 12, 0, 80)
     frame.Parent = gui
     Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
@@ -57,18 +62,30 @@ local function show(title, message)
     gui.Parent = player:WaitForChild("PlayerGui")
 end
 
-local okHttp, source = pcall(function()
-    return game:HttpGet(URL, true)
-end)
+local function fetchFirst()
+    local errors = {}
+    for _, url in ipairs(URLS) do
+        local ok, source = pcall(function()
+            return game:HttpGet(url, true)
+        end)
+        if ok and type(source) == "string" and source:find("Grow a Garden", 1, true) then
+            return source, url
+        end
+        errors[#errors + 1] = url .. " -> " .. tostring(source)
+        task.wait(0.5)
+    end
+    return nil, table.concat(errors, "\n\n")
+end
 
-if not okHttp or type(source) ~= "string" or #source < 10 then
-    show("GAG HTTP ERROR", source)
+local source, info = fetchFirst()
+if not source then
+    show("GAG HTTP ERROR", info)
     return
 end
 
 local fn, compileErr = loadstring(source)
 if not fn then
-    show("GAG COMPILE ERROR", compileErr)
+    show("GAG COMPILE ERROR", compileErr .. "\n\nLoaded from: " .. tostring(info))
     return
 end
 
@@ -80,5 +97,5 @@ local okRun, runErr = xpcall(fn, function(err)
 end)
 
 if not okRun then
-    show("GAG RUNTIME ERROR", runErr)
+    show("GAG RUNTIME ERROR", tostring(runErr) .. "\n\nLoaded from: " .. tostring(info))
 end
