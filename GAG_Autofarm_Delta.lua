@@ -116,6 +116,7 @@ local UserInputService  = game:GetService("UserInputService")
 local TweenService      = game:GetService("TweenService")
 local StarterGui        = game:GetService("StarterGui")
 local Lighting          = game:GetService("Lighting")
+local CollectionService = game:GetService("CollectionService")
 
 local LP   = Players.LocalPlayer
 local Char = LP.Character
@@ -354,6 +355,102 @@ local Utils = {}
 do
     local remoteCache = {}
     local remoteMissAt = {}
+    local Net = nil
+    local NetMissAt = 0
+    local Replica = nil
+    local ReplicaMissAt = 0
+
+    local function LoadNet()
+        if Net then return Net end
+        if NetMissAt > 0 and tick() - NetMissAt < 5 then return nil end
+        local ok, res = pcall(function()
+            local sharedModules = ReplicatedStorage:WaitForChild("SharedModules", 15)
+            local networking = sharedModules and sharedModules:WaitForChild("Networking", 15)
+            return networking and require(networking) or nil
+        end)
+        if ok and type(res) == "table" then
+            Net = res
+            NetMissAt = 0
+            Utils.Log("NET", "Networking module loaded")
+        else
+            NetMissAt = tick()
+            Utils.Log("NET", "Networking module not found")
+        end
+        return Net
+    end
+
+    local function GetAction(path)
+        local cur = LoadNet()
+        if type(cur) ~= "table" then return nil end
+        for part in string.gmatch(tostring(path or ""), "[^%.]+") do
+            if type(cur) ~= "table" then return nil end
+            cur = cur[part]
+        end
+        return cur
+    end
+
+    local function LoadReplica()
+        if Replica then return Replica end
+        if ReplicaMissAt > 0 and tick() - ReplicaMissAt < 5 then return nil end
+        local ok, res = pcall(function()
+            local cm = ReplicatedStorage:WaitForChild("ClientModules", 15)
+            local psc = cm and cm:WaitForChild("PlayerStateClient", 15)
+            local mod = psc and require(psc) or nil
+            local function result(first, second)
+                if first == false then return nil end
+                if second ~= nil then return second end
+                if first ~= nil and type(first) ~= "boolean" then return first end
+                return nil
+            end
+            if mod and mod.WaitForLocalReplica then
+                local okReplica, first, second = pcall(function()
+                    return mod:WaitForLocalReplica(30)
+                end)
+                local replica = okReplica and result(first, second) or nil
+                if replica then return replica end
+                local okDirect, direct, directSecond = pcall(function()
+                    return mod.WaitForLocalReplica(30)
+                end)
+                replica = okDirect and result(direct, directSecond) or nil
+                if replica then return replica end
+            end
+            return nil
+        end)
+        if ok and res then
+            Replica = res
+            ReplicaMissAt = 0
+            Utils.Log("DATA", "Player replica loaded")
+        else
+            ReplicaMissAt = tick()
+            Utils.Log("DATA", "Player replica not found")
+        end
+        return Replica
+    end
+
+    local function StockOf(shop, name)
+        local ok, items = pcall(function()
+            return ReplicatedStorage.StockValues[shop].Items
+        end)
+        if not ok or not items then return nil end
+        local item = items:FindFirstChild(name)
+        return item and tonumber(item.Value) or 0
+    end
+
+    local function ToolByAttr(attr, wantName)
+        local sources = {LP:FindFirstChild("Backpack"), LP.Character}
+        for _, source in ipairs(sources) do
+            if source then
+                for _, tool in ipairs(source:GetChildren()) do
+                    if tool:IsA("Tool") and tool:GetAttribute(attr) ~= nil then
+                        if not wantName or tool:GetAttribute(attr) == wantName or tool.Name == wantName then
+                            return tool
+                        end
+                    end
+                end
+            end
+        end
+        return nil
+    end
 
     local function SafeRoot()
         local c = LP.Character or LP.CharacterAdded:Wait()
@@ -427,6 +524,46 @@ do
     end
 
     function Utils.GetFarm()
+        local gardens = workspace:FindFirstChild("Gardens")
+        local plotId = LP:GetAttribute("PlotId")
+        local function ownValue(value)
+            if value == LP then return true end
+            if typeof(value) == "Instance" then return value == LP end
+            if tostring(value) == LP.Name then return true end
+            if tonumber(value) and tonumber(value) == LP.UserId then return true end
+            return false
+        end
+        local function plotValue(value)
+            return plotId ~= nil and tostring(value) == tostring(plotId)
+        end
+        local function childOwner(p)
+            local o = p:FindFirstChild("Owner") or p:FindFirstChild("OwnerValue")
+            if not o then return false end
+            if o:IsA("StringValue") or o:IsA("ObjectValue") or o:IsA("IntValue") or o:IsA("NumberValue") then
+                return ownValue(o.Value)
+            end
+            return false
+        end
+        if gardens and plotId then
+            local plot = gardens:FindFirstChild("Plot" .. tostring(plotId)) or gardens:FindFirstChild(tostring(plotId))
+            if plot then return plot end
+        end
+        if gardens then
+            for _, p in ipairs(gardens:GetChildren()) do
+                if ownValue(p:GetAttribute("Owner")) or ownValue(p:GetAttribute("OwnerUserId")) or ownValue(p:GetAttribute("UserId")) or plotValue(p:GetAttribute("PlotId")) or childOwner(p) or p.Name == LP.Name then
+                    return p
+                end
+            end
+        end
+        for _, folderName in ipairs({"Gardens", "Farms", "Plots"}) do
+            local folder = workspace:FindFirstChild(folderName)
+            if folder then
+                for _, p in ipairs(folder:GetChildren()) do
+                    if childOwner(p) then return p end
+                    if p.Name == LP.Name then return p end
+                end
+            end
+        end
         for _, obj in ipairs(workspace:GetChildren()) do
             if obj.Name:lower():find("farm") or obj.Name:lower():find("plot") then
                 local o = obj:FindFirstChild("Owner") or obj:FindFirstChild("OwnerValue")
@@ -434,17 +571,6 @@ do
                     if o:IsA("StringValue") and o.Value == LP.Name then return obj end
                     if o:IsA("ObjectValue") and o.Value == LP then return obj end
                 end
-            end
-        end
-        local folder = workspace:FindFirstChild("Farms") or workspace:FindFirstChild("Plots") or workspace:FindFirstChild("Gardens")
-        if folder then
-            for _, p in ipairs(folder:GetChildren()) do
-                local o = p:FindFirstChild("Owner") or p:FindFirstChild("OwnerValue")
-                if o then
-                    if o:IsA("StringValue") and o.Value == LP.Name then return p end
-                    if o:IsA("ObjectValue") and o.Value == LP then return p end
-                end
-                if p.Name == LP.Name then return p end
             end
         end
         return nil
@@ -484,6 +610,63 @@ do
         local bp = LP:FindFirstChild("Backpack")
         if bp then for _, i in ipairs(bp:GetChildren()) do table.insert(items, i) end end
         return items
+    end
+
+    function Utils.NetAction(path)
+        return GetAction(path)
+    end
+
+    function Utils.NetFire(path, ...)
+        local action = GetAction(path)
+        if not (action and action.Fire) then return false, "missing action: " .. tostring(path) end
+        local pack = table.pack or function(...) return { n = select("#", ...), ... } end
+        local unpackArgs = table.unpack or unpack
+        local args = pack(...)
+        local ok, res = pcall(function()
+            return action:Fire(unpackArgs(args, 1, args.n))
+        end)
+        if not ok then
+            Utils.Log("NET", tostring(path) .. " err: " .. tostring(res))
+            return false, res
+        end
+        if res == false then return false, res end
+        if type(res) == "table" and res.Success == false then return false, res end
+        return true, res
+    end
+
+    function Utils.Data()
+        local rep = LoadReplica()
+        return rep and rep.Data or {}
+    end
+
+    function Utils.InventoryCategory(category)
+        local inv = Utils.Data().Inventory
+        return inv and inv[category] or {}
+    end
+
+    function Utils.InventoryNames(category)
+        local out = {}
+        for k, v in pairs(Utils.InventoryCategory(category)) do
+            local name, count
+            if type(v) == "table" then
+                name = v.Name or v.ItemName or v.Type or tostring(k)
+                count = tonumber(v.Count) or tonumber(v.Amount) or 1
+            elseif type(v) == "number" then
+                name, count = tostring(k), v
+            else
+                name, count = tostring(k), 1
+            end
+            if name then out[name] = (out[name] or 0) + (count or 1) end
+        end
+        return out
+    end
+
+    function Utils.StockOf(shop, name)
+        return StockOf(shop, name)
+    end
+
+    function Utils.ToolByAttr(attr, wantName)
+        return ToolByAttr(attr, wantName)
     end
 
     function Utils.FindRemote(name)
@@ -574,6 +757,9 @@ do
     end
 
     function Utils.GetMoney()
+        local data = Utils.Data()
+        local sheckles = tonumber(data.Sheckles)
+        if sheckles then return sheckles end
         local ls = LP:FindFirstChild("leaderstats")
         if ls then
             local c = ls:FindFirstChild("Cash") or ls:FindFirstChild("Sheckles") or ls:FindFirstChild("Money")
@@ -583,8 +769,9 @@ do
     end
 
     function Utils.GetFruitCount()
+        local attrCount = tonumber(LP:GetAttribute("FruitCount")) or 0
         local bp = LP:FindFirstChild("Backpack")
-        if not bp then return 0 end
+        if not bp then return attrCount end
         local crops = {
             Carrot = true, Strawberry = true, Blueberry = true, Tomato = true, Corn = true,
             Apple = true, Bamboo = true, Coconut = true, Cactus = true, Pumpkin = true,
@@ -603,19 +790,18 @@ do
                 end
             end
         end
-        return n
+        return math.max(n, attrCount)
     end
 
     function Utils.Diagnostics()
         local farm = Utils.GetFarm()
         local plants = farm and Utils.GetPlants(farm) or {}
         local backpack = LP:FindFirstChild("Backpack")
-        local remotes = {"Harvest", "Sell", "PlantSeed", "ShovelPlant", "BuySeed", "BuyGear", "BuyPet", "SendMail"}
-        Utils.Log("DIAG", "Running: " .. tostring(GAG.Running) .. " | Farm: " .. (farm and farm.Name or "NOT FOUND"))
-        Utils.Log("DIAG", "Plants: " .. tostring(#plants) .. " | Backpack items: " .. tostring(backpack and #backpack:GetChildren() or 0) .. " | Money: " .. tostring(Utils.GetMoney()))
-        for _, remoteName in ipairs(remotes) do
-            local remote = Utils.FindRemote(remoteName)
-            Utils.Log("DIAG", remoteName .. ": " .. (remote and ("FOUND " .. remote.Name) or "NOT FOUND"))
+        local actions = {"Garden.CollectFruit", "NPCS.SellAll", "Plant.PlantSeed", "SeedShop.PurchaseSeed", "GearShop.PurchaseGear", "Mailbox.OpenInbox", "Mailbox.Claim", "Actions.ExpandGarden"}
+        Utils.Log("DIAG", "Running: " .. tostring(GAG.Running) .. " | Farm: " .. (farm and farm.Name or "NOT FOUND") .. " | PlotId: " .. tostring(LP:GetAttribute("PlotId")))
+        Utils.Log("DIAG", "Plants: " .. tostring(#plants) .. " | Backpack items: " .. tostring(backpack and #backpack:GetChildren() or 0) .. " | Money: " .. tostring(Utils.GetMoney()) .. " | Fruit: " .. tostring(LP:GetAttribute("FruitCount") or Utils.GetFruitCount()))
+        for _, path in ipairs(actions) do
+            Utils.Log("DIAG", path .. ": " .. (Utils.NetAction(path) and "FOUND" or "NOT FOUND"))
         end
     end
 end
@@ -647,6 +833,42 @@ do
         return false
     end
 
+    local function FindAncestorAttr(obj, attr)
+        local cur = obj
+        while cur and cur ~= workspace do
+            local value = cur:GetAttribute(attr)
+            if value ~= nil then return value, cur end
+            cur = cur.Parent
+        end
+        return nil, nil
+    end
+
+    function Harvest.HarvestTagged()
+        if not GAG.Config["Auto Harvest"] then return 0 end
+        local farm = Utils.GetFarm()
+        local done = 0
+        for _, prompt in ipairs(CollectionService:GetTagged("HarvestPrompt")) do
+            if not GAG.Alive or not GAG.Running then break end
+            if prompt and prompt:IsDescendantOf(workspace) and (not prompt:IsA("ProximityPrompt") or prompt.Enabled ~= false) then
+                local plantId, carrier = FindAncestorAttr(prompt, "PlantId")
+                local fruitId = FindAncestorAttr(prompt, "FruitId")
+                local userId = FindAncestorAttr(prompt, "UserId")
+                local owned = (not userId or tonumber(userId) == LP.UserId or tostring(userId) == tostring(LP.UserId))
+                if owned and farm and carrier and not carrier:IsDescendantOf(farm) then owned = false end
+                if owned and plantId then
+                    local ok = Utils.NetFire("Garden.CollectFruit", tostring(plantId), tostring(fruitId or ""))
+                    if ok then
+                        done = done + 1
+                        GAG.Stats.Harvested = GAG.Stats.Harvested + 1
+                        if done % 12 == 0 then task.wait(0.05) end
+                    end
+                end
+            end
+        end
+        if done > 0 then Utils.Log("HARVEST", "Collected " .. tostring(done) .. " tagged fruits") end
+        return done
+    end
+
     function Harvest.HarvestPlant(plant)
         local name = plant:GetAttribute("PlantName") or plant.Name
         if not Config.ShouldHarvest(name) then return false end
@@ -666,6 +888,27 @@ do
             end
         end
         task.wait(0.3)
+
+        local plantId = plant:GetAttribute("PlantId")
+        local fruitId = plant:GetAttribute("FruitId")
+        if plantId and Utils.NetFire("Garden.CollectFruit", tostring(plantId), tostring(fruitId or "")) then
+            GAG.Stats.Harvested = GAG.Stats.Harvested + 1
+            task.wait(0.1)
+            return true
+        end
+        for _, ch in ipairs(plant:GetDescendants()) do
+            local descPlantId = ch:GetAttribute("PlantId") or plantId
+            local descFruitId = ch:GetAttribute("FruitId") or fruitId
+            if descPlantId or descFruitId then
+                descPlantId = descPlantId or FindAncestorAttr(ch, "PlantId")
+                descFruitId = descFruitId or FindAncestorAttr(ch, "FruitId")
+                if Utils.NetFire("Garden.CollectFruit", tostring(descPlantId or ""), tostring(descFruitId or "")) then
+                    GAG.Stats.Harvested = GAG.Stats.Harvested + 1
+                    task.wait(0.1)
+                    return true
+                end
+            end
+        end
 
         local prompt = plant:FindFirstChildWhichIsA("ProximityPrompt", true)
         if prompt then
@@ -708,7 +951,19 @@ do
                 end
             end
         end
+        local beforeCount = Utils.GetFruitCount()
         Utils.Log("HARVEST", "Selling fruits...")
+        local okSell, sellRes = Utils.NetFire("NPCS.SellAll")
+        if okSell then
+            local sold = beforeCount
+            if type(sellRes) == "table" and sellRes.Success == true then
+                sold = tonumber(sellRes.SoldCount) or sold
+            end
+            GAG.Stats.Sold = GAG.Stats.Sold + sold
+            sellTimer = 0
+            Utils.Log("SELL", "Sold " .. tostring(sold) .. " fruits")
+            return true
+        end
         local sell = workspace:FindFirstChild("SellArea") or workspace:FindFirstChild("SellNPC")
             or workspace:FindFirstChild("Sell")
         if sell then
@@ -734,6 +989,7 @@ do
                 Utils.Sleep(1)
             else
             pcall(function()
+                Harvest.HarvestTagged()
                 local plants = Utils.GetPlants()
                 table.sort(plants, function(a, b)
                     local am = a:GetAttribute("Mutated") or a:GetAttribute("HasMutation")
@@ -837,12 +1093,54 @@ do
         return false
     end
 
+    local function TryPlantWithRay(pos)
+        local playerScripts = LP:FindFirstChild("PlayerScripts")
+        local controllers = playerScripts and playerScripts:FindFirstChild("Controllers")
+        local plantController = controllers and controllers:FindFirstChild("PlantController")
+        if not plantController then return false end
+        local controller = plantController
+        if plantController:IsA("ModuleScript") then
+            local okRequire, mod = pcall(require, plantController)
+            if not okRequire then return false end
+            controller = mod
+        end
+        local okFn, fn = pcall(function() return controller.TryPlantWithRay end)
+        if not okFn or type(fn) ~= "function" then return false end
+        local ray = Ray.new(pos + Vector3.new(0, 12, 0), Vector3.new(0, -40, 0))
+        local ok, res = pcall(function()
+            return fn(controller, ray)
+        end)
+        return ok and (res == nil or res ~= false)
+    end
+
     function Plant.GetPlotPositions()
         local farm = Utils.GetFarm()
         if not farm then return {} end
+        local tagged = {}
+        for _, area in ipairs(CollectionService:GetTagged("PlantArea")) do
+            if area:IsA("BasePart") and area:IsDescendantOf(farm) then
+                table.insert(tagged, area)
+            end
+        end
+        if #tagged > 0 then
+            local lo = LAYOUT[GAG.Config["Layout"]] or LAYOUT.compact
+            local pos = {}
+            for _, area in ipairs(tagged) do
+                local stepsX = math.max(1, math.floor(area.Size.X / lo.x))
+                local stepsZ = math.max(1, math.floor(area.Size.Z / lo.z))
+                for x = 1, stepsX do
+                    for z = 1, stepsZ do
+                        local lx = -area.Size.X / 2 + (x - 0.5) * lo.x
+                        local lz = -area.Size.Z / 2 + (z - 0.5) * lo.z
+                        table.insert(pos, (area.CFrame * CFrame.new(lx, area.Size.Y / 2 + 0.05, lz)).Position)
+                    end
+                end
+            end
+            return pos
+        end
         local primary = (farm:IsA("BasePart") and farm) or (farm:IsA("Model") and farm.PrimaryPart) or farm:FindFirstChildWhichIsA("BasePart", true)
         if not primary then return {} end
-        local fp, fs = primary.Position, primary.Size
+        local fp = primary.Position
         local lo = LAYOUT[GAG.Config["Layout"]] or LAYOUT.compact
         local ex = GAG.Stats.Expanded or 0
         local gs = math.floor(3 + ex * 0.5)
@@ -880,13 +1178,15 @@ do
         local bp = LP:FindFirstChild("Backpack")
         local ch = LP.Character
         if not bp or not ch then return false end
-        local tool
-        for _, t in ipairs(bp:GetChildren()) do
-            if t:IsA("Tool") and t.Name == name then tool = t; break end
+        local tool = Utils.ToolByAttr("SeedTool", name) or Utils.ToolByAttr("SeedName", name)
+        if not tool then
+            for _, t in ipairs(bp:GetChildren()) do
+                if t:IsA("Tool") and (t.Name == name or t.Name == name .. " Seed") then tool = t; break end
+            end
         end
         if not tool then
             for _, t in ipairs(ch:GetChildren()) do
-                if t:IsA("Tool") and t.Name == name then tool = t; break end
+                if t:IsA("Tool") and (t.Name == name or t.Name == name .. " Seed") then tool = t; break end
             end
         end
         if not tool then return false end
@@ -898,9 +1198,13 @@ do
         end
         Utils.TeleportTo(pos)
         task.wait(0.15)
-        if not Utils.FireRemote("PlantSeed", name, pos) then
-            Utils.FireRemote("Plant", name, pos)
+        local seedName = tool:GetAttribute("SeedTool") or tool:GetAttribute("SeedName") or name:gsub(" Seed$", "")
+        local ok = Utils.NetFire("Plant.PlantSeed", pos, seedName, tool)
+        if not ok then ok = TryPlantWithRay(pos) end
+        if not ok then
+            ok = Utils.FireRemote("PlantSeed", name, pos) or Utils.FireRemote("Plant", name, pos)
         end
+        if not ok then return false end
         GAG.Stats.Planted = GAG.Stats.Planted + 1
         task.wait(0.3)
         return true
@@ -923,9 +1227,11 @@ do
         local cash = Utils.GetMoney()
         if cash < GAG.Config["Expand If Over"] then return false end
         if GAG.Stats.Expanded >= (GAG.Config["Max Expansions"]) then return false end
-        if not Utils.FireRemote("ExpandPlot") then
-            Utils.FireRemote("BuyExpansion")
+        local ok = Utils.NetFire("Actions.ExpandGarden")
+        if not ok then
+            ok = Utils.FireRemote("ExpandPlot") or Utils.FireRemote("BuyExpansion")
         end
+        if not ok then return false end
         GAG.Stats.Expanded = GAG.Stats.Expanded + 1
         task.wait(0.5)
         return true
@@ -943,7 +1249,10 @@ do
             return tool:GetAttribute("IsSeed") or tool:GetAttribute("SeedName") or lower:find("seed")
         end
         for _, t in ipairs(bp:GetChildren()) do
-            if isSeedTool(t) then counts[t.Name] = (counts[t.Name] or 0) + 1 end
+            if isSeedTool(t) then
+                local seedName = t:GetAttribute("SeedTool") or t:GetAttribute("SeedName") or t.Name:gsub(" Seed$", "")
+                counts[seedName] = (counts[seedName] or 0) + 1
+            end
         end
         local plan = GAG.Config["Plant Plan"]
         if plan and #plan > 0 then
@@ -1080,12 +1389,23 @@ do
         amount = amount or 1
         if not Config.ShouldBuySeed(name) then return false end
         local cash = Utils.GetMoney()
-        if cash < GAG.Config["Keep Cash"] then return false end
-        if not Utils.FireRemote("BuySeed", name, amount) then
-            Utils.FireRemote("Buy", name, amount)
+        if cash <= GAG.Config["Keep Cash"] then return false end
+        local stock = Utils.StockOf("SeedShop", name)
+        if stock ~= nil and stock <= 0 then return false end
+        local bought = 0
+        for _ = 1, amount do
+            cash = Utils.GetMoney()
+            if cash <= GAG.Config["Keep Cash"] then break end
+            local ok = Utils.NetFire("SeedShop.PurchaseSeed", name)
+            if not ok then
+                ok = Utils.FireRemote("BuySeed", name, 1) or Utils.FireRemote("Buy", name, 1)
+            end
+            if ok then bought = bought + 1 end
+            task.wait(0.12)
         end
-        GAG.Stats.SeedsBought = GAG.Stats.SeedsBought + amount
-        Utils.Log("BUY", amount .. "x " .. name)
+        if bought <= 0 then return false end
+        GAG.Stats.SeedsBought = GAG.Stats.SeedsBought + bought
+        Utils.Log("BUY", bought .. "x " .. name)
         return true
     end
 
@@ -1096,9 +1416,14 @@ do
         if not bp then return end
         local counts = {}
         for _, t in ipairs(bp:GetChildren()) do
-            if t:IsA("Tool") then counts[t.Name] = (counts[t.Name] or 0) + 1 end
+            if t:IsA("Tool") then
+                local seedName = t:GetAttribute("SeedTool") or t:GetAttribute("SeedName") or t.Name:gsub(" Seed$", "")
+                counts[seedName] = (counts[seedName] or 0) + 1
+            end
         end
         for name, target in pairs(cfg) do
+            if not GAG.Running then break end
+            if Utils.GetMoney() <= GAG.Config["Keep Cash"] then break end
             if type(target) == "number" and target > 0 then
                 local have = counts[name] or 0
                 if have < target then
@@ -1126,7 +1451,7 @@ end
 local Pets = {}
 do
     function Pets.GetOwned()
-        local owned = {}
+        local owned = Utils.InventoryNames("Pets")
         local data = LP:FindFirstChild("PetData") or LP:FindFirstChild("Pets")
         if data then
             for _, ch in ipairs(data:GetChildren()) do
@@ -1145,13 +1470,17 @@ do
     end
 
     function Pets.Equip(name)
-        Utils.FireRemote("EquipPet", name)
+        if not Utils.NetFire("Pets.RequestEquipByName", name) then
+            Utils.FireRemote("EquipPet", name)
+        end
         Utils.Log("PET", "Equipped " .. name)
     end
 
     function Pets.BuySlot()
         if not GAG.Config["Pets"]["Auto Buy Slots"] then return end
-        Utils.FireRemote("BuyPetSlot")
+        if not Utils.NetFire("Pets.RequestPurchasePetSlot") then
+            Utils.FireRemote("BuyPetSlot")
+        end
         Utils.Log("PET", "Bought pet slot")
     end
 
@@ -1201,14 +1530,17 @@ do
 
     function Gear.PlaceSprinklers()
         local cfg = GAG.Config["Gear"]["Place Sprinklers"]
-        if not cfg then return end
+        if not cfg then return true end
         local farm = Utils.GetFarm()
-        if not farm then return end
+        if not farm then return false end
         local primary = (farm:IsA("BasePart") and farm) or (farm:IsA("Model") and farm.PrimaryPart) or farm:FindFirstChildWhichIsA("BasePart", true)
-        if not primary then return end
+        if not primary then return false end
         local fp = primary.Position
+        local placed = 0
+        local total = 0
 
         for name, count in pairs(cfg) do
+            total = total + count
             if name == "best" then
                 local best = GAG.Config["Gear"]["Best Sprinkler Up To"] or "Rare Sprinkler"
                 Utils.Log("GEAR", "Placing " .. count .. " best sprinklers (up to " .. best .. ")")
@@ -1217,7 +1549,10 @@ do
                     local angle = (i - 1) * (2 * math.pi / count)
                     local r = 10
                     local pos = fp + Vector3.new(math.cos(angle) * r, 0, math.sin(angle) * r)
-                    Utils.FireRemote("PlaceSprinkler", best, pos)
+                    local tool = Utils.ToolByAttr("Sprinkler", best)
+                    local ok = Utils.NetFire("Place.PlaceSprinkler", pos, best, tool, LP:GetAttribute("PlotId"))
+                    if not ok then ok = Utils.FireRemote("PlaceSprinkler", best, pos) end
+                    if ok then placed = placed + 1 end
                     task.wait(0.3)
                 end
             else
@@ -1225,24 +1560,33 @@ do
                     if not GAG.Running then break end
                     local angle = (i - 1) * (2 * math.pi / count)
                     local pos = fp + Vector3.new(math.cos(angle) * 8, 0, math.sin(angle) * 8)
-                    Utils.FireRemote("PlaceSprinkler", name, pos)
+                    local tool = Utils.ToolByAttr("Sprinkler", name)
+                    local ok = Utils.NetFire("Place.PlaceSprinkler", pos, name, tool, LP:GetAttribute("PlotId"))
+                    if not ok then ok = Utils.FireRemote("PlaceSprinkler", name, pos) end
+                    if ok then placed = placed + 1 end
                     task.wait(0.3)
                 end
             end
         end
+        return total <= 0 or placed >= total
     end
 
     function Gear.ProcessBuy()
         local buyList = GAG.Config["Gear"]["Buy Gear"]
         if not buyList then return end
-        local cash = Utils.GetMoney()
         local keep = GAG.Config["Gear"]["Keep Cash"] or 15000
         for _, name in ipairs(buyList) do
             if not GAG.Running then break end
-            if cash > keep then
-                Utils.FireRemote("BuyGear", name)
-                GAG.Stats.GearBought = GAG.Stats.GearBought + 1
-                Utils.Log("GEAR", "Bought " .. name)
+            local cash = Utils.GetMoney()
+            if cash <= keep then break end
+            local stock = Utils.StockOf("GearShop", name)
+            if stock == nil or stock > 0 then
+                local ok = Utils.NetFire("GearShop.PurchaseGear", name)
+                if not ok then ok = Utils.FireRemote("BuyGear", name) end
+                if ok then
+                    GAG.Stats.GearBought = GAG.Stats.GearBought + 1
+                    Utils.Log("GEAR", "Bought " .. name)
+                end
                 task.wait(0.5)
             end
         end
@@ -1255,8 +1599,7 @@ do
             pcall(function()
                 if GAG.Config["Gear"]["Auto Buy"] then
                     if not sprinklersPlaced then
-                        Gear.PlaceSprinklers()
-                        sprinklersPlaced = true
+                        sprinklersPlaced = Gear.PlaceSprinklers()
                     end
                     Gear.ProcessBuy()
                 end
@@ -1288,11 +1631,26 @@ do
     end
 
     function Mail.Claim()
-        if not Utils.FireRemote("ClaimMail") then
-            Utils.FireRemote("MailClaim")
+        local ok, box = Utils.NetFire("Mailbox.OpenInbox")
+        local claimed = 0
+        if ok and type(box) == "table" then
+            local inbox = box.Mailbox or box.Inbox or box
+            for id, entry in pairs(inbox) do
+                if type(entry) == "table" and entry.Claimed ~= true and entry.IsClaimed ~= true then
+                    local claimId = entry.Id or entry.ID or entry.MailId or entry.MailID or entry.UUID or id
+                    if Utils.NetFire("Mailbox.Claim", claimId) then
+                        claimed = claimed + 1
+                        task.wait(0.1)
+                    end
+                end
+            end
         end
-        GAG.Stats.MailSent = GAG.Stats.MailSent -- keep
-        Utils.Log("MAIL", "Claimed mail")
+        if claimed == 0 then
+            if not Utils.FireRemote("ClaimMail") then
+                Utils.FireRemote("MailClaim")
+            end
+        end
+        Utils.Log("MAIL", claimed > 0 and ("Claimed " .. tostring(claimed) .. " mail") or "Claimed mail")
     end
 
     function Mail.SendItem(name, count)
@@ -1320,9 +1678,10 @@ do
         end
         local target = GAG.Config["Mail"]["Send To"]
         if not target or target == "" then return false end
-        if not Utils.FireRemote("SendMail", target, name, count) then
-            Utils.FireRemote("MailSend", target, name, count)
-        end
+        local ok = Utils.NetFire("Mailbox.Send", target, name, count)
+        if not ok then ok = Utils.NetFire("Mailbox.SendItem", target, name, count) end
+        if not ok then ok = Utils.FireRemote("SendMail", target, name, count) or Utils.FireRemote("MailSend", target, name, count) end
+        if not ok then return false end
         GAG.Stats.MailSent = GAG.Stats.MailSent + count
         Utils.Log("MAIL", "Sent " .. count .. "x " .. name .. " to " .. target)
         return true
@@ -1481,7 +1840,10 @@ do
 
     function Misc.DailyDeal()
         if not GAG.Config["Misc"]["Auto Daily Deal"] then return end
-        Utils.FireRemote("DailyDeal")
+        if not Utils.NetFire("NPCS.CheckDailyDeal") then
+            Utils.FireRemote("DailyDeal")
+        end
+        Utils.NetFire("NPCS.UseDailyDealAll")
         Utils.Log("MISC", "Daily deal triggered")
     end
 
