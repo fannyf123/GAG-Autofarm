@@ -5,7 +5,21 @@ local URLS = {
     "https://raw.fastgit.org/fannyf123/GAG-Autofarm/main/GAG_Autofarm_Delta.lua",
 }
 
+local function copyResult(result)
+    result = tostring(result or "")
+    local ok = false
+    if setclipboard then
+        ok = pcall(setclipboard, result)
+    elseif toclipboard then
+        ok = pcall(toclipboard, result)
+    end
+    return ok
+end
+
 local function show(title, message)
+    local result = "[" .. tostring(title) .. "]\n" .. tostring(message)
+    copyResult(result)
+
     local Players = game:GetService("Players")
     local player = Players.LocalPlayer
     local gui = Instance.new("ScreenGui")
@@ -15,7 +29,7 @@ local function show(title, message)
     local frame = Instance.new("Frame")
     frame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
     frame.BorderSizePixel = 0
-    frame.Size = UDim2.new(1, -24, 0, 300)
+    frame.Size = UDim2.new(1, -24, 0, 330)
     frame.Position = UDim2.new(0, 12, 0, 80)
     frame.Parent = gui
     Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
@@ -31,18 +45,51 @@ local function show(title, message)
     header.Position = UDim2.new(0, 10, 0, 8)
     header.Parent = frame
 
+    local hint = Instance.new("TextLabel")
+    hint.BackgroundTransparency = 1
+    hint.Font = Enum.Font.SourceSans
+    hint.Text = "Error otomatis dicopy kalau executor support. Klik COPY buat ulang."
+    hint.TextColor3 = Color3.fromRGB(140, 220, 255)
+    hint.TextSize = 14
+    hint.TextXAlignment = Enum.TextXAlignment.Left
+    hint.Size = UDim2.new(1, -20, 0, 22)
+    hint.Position = UDim2.new(0, 10, 0, 38)
+    hint.Parent = frame
+
     local text = Instance.new("TextLabel")
     text.BackgroundTransparency = 1
     text.Font = Enum.Font.SourceSans
-    text.Text = tostring(message)
+    text.Text = result
     text.TextColor3 = Color3.fromRGB(235, 235, 235)
     text.TextSize = 15
     text.TextWrapped = true
     text.TextXAlignment = Enum.TextXAlignment.Left
     text.TextYAlignment = Enum.TextYAlignment.Top
-    text.Size = UDim2.new(1, -20, 1, -58)
-    text.Position = UDim2.new(0, 10, 0, 48)
+    text.Size = UDim2.new(1, -20, 1, -104)
+    text.Position = UDim2.new(0, 10, 0, 64)
     text.Parent = frame
+
+    local copy = Instance.new("TextButton")
+    copy.BackgroundColor3 = Color3.fromRGB(60, 120, 180)
+    copy.BorderSizePixel = 0
+    copy.Font = Enum.Font.SourceSansBold
+    copy.Text = "COPY ERROR"
+    copy.TextColor3 = Color3.fromRGB(255, 255, 255)
+    copy.TextSize = 14
+    copy.Size = UDim2.new(0, 120, 0, 30)
+    copy.Position = UDim2.new(1, -220, 1, -40)
+    copy.Parent = frame
+    Instance.new("UICorner", copy).CornerRadius = UDim.new(0, 8)
+    copy.MouseButton1Click:Connect(function()
+        if copyResult(result) then
+            copy.Text = "COPIED"
+            task.delay(1.5, function()
+                if copy then copy.Text = "COPY ERROR" end
+            end)
+        else
+            copy.Text = "COPY FAILED"
+        end
+    end)
 
     local close = Instance.new("TextButton")
     close.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
@@ -85,7 +132,7 @@ end
 
 local fn, compileErr = loadstring(source)
 if not fn then
-    show("GAG COMPILE ERROR", compileErr .. "\n\nLoaded from: " .. tostring(info))
+    show("GAG COMPILE ERROR", tostring(compileErr) .. "\n\nLoaded from: " .. tostring(info))
     return
 end
 
