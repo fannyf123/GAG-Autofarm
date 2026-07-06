@@ -77,7 +77,7 @@ _G.GAGConfig = {
         ["Auto Return To Garden"] = true,
         ["Show Stats"]            = true,
         ["Hide Game UI"]          = false,
-        ["Show Console"]          = false,
+        ["Show Console"]          = true,
         ["Smart Travel"]          = true,
         ["Auto Daily Deal"]       = true,
         ["Walk Speed"]            = 0,
@@ -127,6 +127,15 @@ if not Char then
     until Char or tick() - started > 20
 end
 local HRP = Char and (Char:FindFirstChild("HumanoidRootPart") or Char:WaitForChild("HumanoidRootPart", 20)) or nil
+pcall(function()
+    local playerGui = LP:FindFirstChild("PlayerGui")
+    if playerGui then
+        for _, guiName in ipairs({"GAG_Stats", "GAG_Loader_Status"}) do
+            local oldGui = playerGui:FindFirstChild(guiName)
+            if oldGui then oldGui:Destroy() end
+        end
+    end
+end)
 
 ---------------------------------------------------------------------------
 -- GLOBAL STATE
@@ -134,6 +143,13 @@ local HRP = Char and (Char:FindFirstChild("HumanoidRootPart") or Char:WaitForChi
 if type(_G.GAG) == "table" then
     _G.GAG.Alive = false
     _G.GAG.Running = false
+    if type(_G.GAG.Connections) == "table" then
+        for _, conn in ipairs(_G.GAG.Connections) do
+            pcall(function()
+                if conn and conn.Disconnect then conn:Disconnect() end
+            end)
+        end
+    end
 end
 
 _G.GAG = {
@@ -142,6 +158,7 @@ _G.GAG = {
     Player   = LP,
     Character = Char,
     HRP      = HRP,
+    Connections = {},
     Config   = _G.GAGConfig,
     Stats    = {
         Harvested  = 0, Sold = 0, Planted = 0, Shoveled = 0,
@@ -151,11 +168,11 @@ _G.GAG = {
 }
 local GAG = _G.GAG
 
-LP.CharacterAdded:Connect(function(c)
+table.insert(GAG.Connections, LP.CharacterAdded:Connect(function(c)
     GAG.Character = c
     GAG.HRP = c:WaitForChild("HumanoidRootPart")
     HRP = GAG.HRP
-end)
+end))
 
 ---------------------------------------------------------------------------
 -- CONFIG MODULE
@@ -208,11 +225,22 @@ do
         return r
     end
 
+    local function NormalizeName(name)
+        local text = tostring(name or "")
+        text = text:gsub("%b[]", "")
+        text = text:gsub("%b()", "")
+        text = text:gsub("%s+[%.%d]+%s*[Kk][Gg]", "")
+        text = text:gsub("%s+[%.%d]+%s*[Gg]", "")
+        text = text:gsub(" Seed$", "")
+        text = text:gsub("^%s+", ""):gsub("%s+$", "")
+        return text
+    end
+
     local function BuildSet(list)
         if type(list) ~= "table" then return {} end
         local s = {}
         for k, v in pairs(list) do
-            if type(k) == "number" then s[v] = true else s[k] = v end
+            if type(k) == "number" then s[NormalizeName(v)] = true else s[NormalizeName(k)] = v end
         end
         return s
     end
@@ -251,7 +279,7 @@ do
         cfg._LK.NeverSellExact = {}
         for _, p in ipairs(cfg["Never Sell"]["Exact"] or {}) do
             if p.fruit and p.mut then
-                cfg._LK.NeverSellExact[p.fruit .. "|" .. p.mut] = true
+                cfg._LK.NeverSellExact[NormalizeName(p.fruit) .. "|" .. tostring(p.mut):lower()] = true
             end
         end
         GAG.Config = cfg
@@ -265,6 +293,7 @@ do
         return s and type(s) == "table" and s[key] or nil
     end
     function Config.ShouldHarvest(name)
+        name = NormalizeName(name)
         local c = GAG.Config; local lk = c._LK
         if not c["Auto Harvest"] then return false end
         if next(lk.OnlyHarvest) and not lk.OnlyHarvest[name] then return false end
@@ -272,6 +301,7 @@ do
         return true
     end
     function Config.ShouldPlant(name)
+        name = NormalizeName(name)
         local c = GAG.Config; local lk = c._LK
         if not c["Auto Plant"] then return false end
         if next(lk.OnlyPlant) and not lk.OnlyPlant[name] then return false end
@@ -279,6 +309,7 @@ do
         return true
     end
     function Config.ShouldBuySeed(name)
+        name = NormalizeName(name)
         local lk = GAG.Config._LK
         if lk.DontPlant[name] then return false end
         if lk.DontBuy[name] then return false end
@@ -287,18 +318,31 @@ do
         return true
     end
     function Config.ShouldShovel(name, tier)
+        name = NormalizeName(name)
         local lk = GAG.Config._LK
         if lk.NeverShovel[name] then return false end
         local tiers = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5, Mythic = 6 }
         local max = tiers[GAG.Config["Shovel Up To"]]
-        if max and tiers[tier] and tiers[tier] > max then return false end
+        local tierValue = type(tier) == "number" and tier or tiers[tier]
+        if max and tierValue and tierValue > max then return false end
         return true
     end
     function Config.ShouldNeverSell(fruit, mut)
+        local rawFruit = tostring(fruit or "")
+        fruit = NormalizeName(rawFruit)
+        local fruitLower = fruit:lower()
+        local rawLower = rawFruit:lower()
         local lk = GAG.Config._LK
-        if mut and lk.NeverSellMut[mut] then return true end
-        if lk.NeverSellFruit[fruit] then return true end
-        if mut and lk.NeverSellExact[fruit .. "|" .. mut] then return true end
+        local mutText = tostring(mut or ""):lower()
+        for mutName in pairs(lk.NeverSellMut or {}) do
+            local m = tostring(mutName):lower()
+            if mutText == m or rawLower:find(m, 1, true) then return true end
+        end
+        for protectedFruit in pairs(lk.NeverSellFruit or {}) do
+            local p = tostring(protectedFruit):lower()
+            if fruitLower == p or rawLower:find(p, 1, true) then return true end
+        end
+        if mut and lk.NeverSellExact[fruit .. "|" .. tostring(mut):lower()] then return true end
         return false
     end
 end
@@ -309,6 +353,7 @@ end
 local Utils = {}
 do
     local remoteCache = {}
+    local remoteMissAt = {}
 
     local function SafeRoot()
         local c = LP.Character or LP.CharacterAdded:Wait()
@@ -442,22 +487,43 @@ do
     end
 
     function Utils.FindRemote(name)
-        if remoteCache[name] and remoteCache[name].Parent then
-            return remoteCache[name]
+        if remoteCache[name] ~= nil then
+            local cached = remoteCache[name]
+            if cached and cached.Parent then return cached end
+        end
+        if remoteMissAt[name] and tick() - remoteMissAt[name] < 5 then
+            return nil
         end
         local lname = tostring(name):lower()
-        local function search(cont)
+        local function search(cont, exact)
             local scanned = 0
-            for _, ch in ipairs(cont:GetDescendants()) do
-                scanned = scanned + 1
-                if scanned > 3000 then break end
-                if (ch:IsA("RemoteEvent") or ch:IsA("RemoteFunction")) and ch.Name:lower():find(lname, 1, true) then
-                    remoteCache[name] = ch
-                    return ch
+            local stack = {cont}
+            while #stack > 0 and scanned < 3000 do
+                local current = table.remove(stack)
+                for _, ch in ipairs(current:GetChildren()) do
+                    scanned = scanned + 1
+                    if ch:IsA("RemoteEvent") or ch:IsA("RemoteFunction") then
+                        local cname = ch.Name:lower()
+                        if (exact and cname == lname) or ((not exact) and cname:find(lname, 1, true)) then
+                            remoteCache[name] = ch
+                            return ch
+                        end
+                    end
+                    if scanned >= 3000 then break end
+                    table.insert(stack, ch)
                 end
             end
         end
-        return search(ReplicatedStorage) or search(workspace)
+        local found = search(ReplicatedStorage, true) or search(workspace, true)
+        if not found and #lname > 4 then
+            found = search(ReplicatedStorage, false) or search(workspace, false)
+        end
+        if found then
+            remoteCache[name] = found
+        else
+            remoteMissAt[name] = tick()
+        end
+        return found
     end
 
     function Utils.FireRemote(name, ...)
@@ -519,13 +585,38 @@ do
     function Utils.GetFruitCount()
         local bp = LP:FindFirstChild("Backpack")
         if not bp then return 0 end
+        local crops = {
+            Carrot = true, Strawberry = true, Blueberry = true, Tomato = true, Corn = true,
+            Apple = true, Bamboo = true, Coconut = true, Cactus = true, Pumpkin = true,
+            Watermelon = true, ["Dragon Fruit"] = true, Mango = true, Grape = true,
+            Mushroom = true, Pepper = true, Cacao = true, Beanstalk = true,
+        ["Moon Bloom"] = true, ["Dragon's Breath"] = true, ["Venus Fly Trap"] = true,
+        ["Orange Tulip"] = true,
+        }
         local n = 0
         for _, i in ipairs(bp:GetChildren()) do
-            if i:IsA("Tool") and (i:GetAttribute("IsFruit") or i.Name:lower():find("fruit")) then
-                n = n + 1
+            if i:IsA("Tool") then
+                local lower = i.Name:lower()
+                local clean = tostring(i.Name):gsub(" Seed$", ""):gsub("%b[]", ""):gsub("%b()", ""):gsub("%s+[%.%d]+%s*[Kk][Gg]", ""):gsub("%s+[%.%d]+%s*[Gg]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                if not lower:find("seed") and (i:GetAttribute("IsFruit") or i:GetAttribute("HarvestedFruit") or lower:find("fruit") or crops[clean]) then
+                    n = n + 1
+                end
             end
         end
         return n
+    end
+
+    function Utils.Diagnostics()
+        local farm = Utils.GetFarm()
+        local plants = farm and Utils.GetPlants(farm) or {}
+        local backpack = LP:FindFirstChild("Backpack")
+        local remotes = {"Harvest", "Sell", "PlantSeed", "ShovelPlant", "BuySeed", "BuyGear", "BuyPet", "SendMail"}
+        Utils.Log("DIAG", "Running: " .. tostring(GAG.Running) .. " | Farm: " .. (farm and farm.Name or "NOT FOUND"))
+        Utils.Log("DIAG", "Plants: " .. tostring(#plants) .. " | Backpack items: " .. tostring(backpack and #backpack:GetChildren() or 0) .. " | Money: " .. tostring(Utils.GetMoney()))
+        for _, remoteName in ipairs(remotes) do
+            local remote = Utils.FindRemote(remoteName)
+            Utils.Log("DIAG", remoteName .. ": " .. (remote and ("FOUND " .. remote.Name) or "NOT FOUND"))
+        end
     end
 end
 
@@ -544,7 +635,7 @@ do
     end
 
     local function ShouldWaitMut(plant)
-        local name = plant:GetAttribute("PlantName") or plant.Name
+        local name = tostring(plant:GetAttribute("PlantName") or plant.Name):gsub(" Seed$", ""):gsub("%s+$", "")
         local lk = GAG.Config._LK
         if not lk.WaitForMut[name] then return false end
         local fruits = Utils.GetFruits(plant)
@@ -593,6 +684,30 @@ do
     end
 
     function Harvest.Sell()
+        local sources = {LP:FindFirstChild("Backpack"), LP.Character}
+        for _, source in ipairs(sources) do
+            if source then
+                for _, item in ipairs(source:GetChildren()) do
+                    if item:IsA("Tool") then
+                        local mutation = item:GetAttribute("Mutation") or item:GetAttribute("MutationName") or item:GetAttribute("Mutated") or item:GetAttribute("Variant")
+                        if mutation == true and next(GAG.Config._LK.NeverSellMut or {}) then
+                            Utils.Log("SELL", "Skipped sell: protected mutated item " .. item.Name)
+                            return false
+                        end
+                        if Config.ShouldNeverSell(item.Name, mutation) then
+                            Utils.Log("SELL", "Skipped sell: protected item " .. item.Name)
+                            return false
+                        end
+                        for mutName in pairs(GAG.Config._LK.NeverSellMut or {}) do
+                            if tostring(item.Name):lower():find(tostring(mutName):lower(), 1, true) then
+                                Utils.Log("SELL", "Skipped sell: protected mutation " .. tostring(mutName))
+                                return false
+                            end
+                        end
+                    end
+                end
+            end
+        end
         Utils.Log("HARVEST", "Selling fruits...")
         local sell = workspace:FindFirstChild("SellArea") or workspace:FindFirstChild("SellNPC")
             or workspace:FindFirstChild("Sell")
@@ -615,6 +730,9 @@ do
     function Harvest.Start()
         Utils.Log("HARVEST", "Loop started")
         while GAG.Alive do
+            if not GAG.Running then
+                Utils.Sleep(1)
+            else
             pcall(function()
                 local plants = Utils.GetPlants()
                 table.sort(plants, function(a, b)
@@ -625,7 +743,7 @@ do
                 end)
 
                 for _, plant in ipairs(plants) do
-                    if not GAG.Alive then break end
+                    if not GAG.Alive or not GAG.Running then break end
                     local fruits = Utils.GetFruits(plant)
                     if #fruits > 0 then
                         Harvest.HarvestPlant(plant)
@@ -641,6 +759,7 @@ do
                     Harvest.Sell()
                 end
             end)
+            end
             Utils.Sleep(2)
         end
     end
@@ -655,14 +774,41 @@ do
     local LAYOUT = { compact = { x = 2.5, z = 2.5 }, spread = { x = 4.5, z = 4.5 } }
 
     local function TierVal(name)
+        local text = tostring(name or ""):gsub(" Seed", "")
+        local known = {
+            Carrot = 1,
+            Strawberry = 1,
+            Blueberry = 2,
+            Tomato = 2,
+            ["Orange Tulip"] = 2,
+            Corn = 3,
+            Apple = 3,
+            Bamboo = 3,
+            Coconut = 4,
+            Cactus = 4,
+            Pumpkin = 4,
+            Watermelon = 4,
+            ["Dragon Fruit"] = 5,
+            Mango = 5,
+            Grape = 5,
+            Mushroom = 6,
+            Pepper = 6,
+            Cacao = 6,
+            Beanstalk = 6,
+            ["Dragon's Breath"] = 6,
+            ["Moon Bloom"] = 6,
+            ["Venus Fly Trap"] = 6,
+        }
+        if known[text] then return known[text] end
         for t, v in pairs(SEED_TIERS) do
-            if name:lower():find(t:lower()) then return v end
+            if text:lower():find(t:lower(), 1, true) then return v end
         end
-        return 1
+        return 6
     end
 
     local function IsProtected(plant)
-        local name = plant:GetAttribute("SeedName") or plant.Name
+        local rawName = plant:GetAttribute("SeedName") or plant.Name
+        local name = tostring(rawName or ""):gsub(" Seed$", ""):gsub("%s+$", "")
         local lk = GAG.Config._LK
         for attr, val in pairs(plant:GetAttributes()) do
             if attr:lower():find("mutation") and val then return true end
@@ -671,10 +817,12 @@ do
         if sz and tostring(sz):lower() == "mega" then return true end
         if lk.NeverShovel[name] then return true end
         if lk.NeverSellFruit[name] then return true end
+        local mutation = plant:GetAttribute("Mutation") or plant:GetAttribute("MutationName") or plant:GetAttribute("Mutated") or plant:GetAttribute("Variant")
+        if Config.ShouldNeverSell(rawName, mutation) then return true end
         local plan = GAG.Config["Plant Plan"]
         if plan then
             for _, e in ipairs(plan) do
-                local n = type(e) == "table" and e.Name or e
+                local n = tostring(type(e) == "table" and e.Name or e):gsub(" Seed$", ""):gsub("%s+$", "")
                 if n == name then return true end
             end
         end
@@ -761,7 +909,7 @@ do
     function Plant.ShovelPlant(plant)
         local name = plant:GetAttribute("SeedName") or plant.Name
         if IsProtected(plant) then return false end
-        if not Config.ShouldShovel(name) then return false end
+        if not Config.ShouldShovel(name, TierVal(name)) then return false end
         if not Utils.FireRemote("ShovelPlant", plant) then
             Utils.FireRemote("Shovel", plant)
         end
@@ -787,8 +935,15 @@ do
         local bp = LP:FindFirstChild("Backpack")
         if not bp then return nil end
         local counts = {}
+        local function isSeedTool(tool)
+            if not tool:IsA("Tool") then return false end
+            if tool:GetAttribute("IsFruit") or tool:GetAttribute("HarvestedFruit") or tool:GetAttribute("IsGear") or tool:GetAttribute("IsPet") then return false end
+            local lower = tool.Name:lower()
+            if lower:find("sprinkler") or lower:find("trowel") or lower:find("shovel") or lower:find("watering") then return false end
+            return tool:GetAttribute("IsSeed") or tool:GetAttribute("SeedName") or lower:find("seed")
+        end
         for _, t in ipairs(bp:GetChildren()) do
-            if t:IsA("Tool") then counts[t.Name] = (counts[t.Name] or 0) + 1 end
+            if isSeedTool(t) then counts[t.Name] = (counts[t.Name] or 0) + 1 end
         end
         local plan = GAG.Config["Plant Plan"]
         if plan and #plan > 0 then
@@ -801,22 +956,22 @@ do
             for _, e in ipairs(plan) do
                 local n = type(e) == "table" and e.Name or e
                 local tgt = type(e) == "table" and (e.Count or e[2]) or 1
-                if (pCounts[n] or 0) < tgt and (counts[n] or 0) > 0 then return n end
+                if (pCounts[n] or 0) < tgt and (counts[n] or 0) > 0 and Config.ShouldPlant(n) then return n end
             end
         end
         local only = GAG.Config["Only Plant"]
         if only and #only > 0 then
             for _, n in ipairs(only) do
-                if (counts[n] or 0) > 0 then return n end
+                if (counts[n] or 0) > 0 and Config.ShouldPlant(n) then return n end
             end
             return nil
         end
-        local minTier = SEED_TIERS[GAG.Config["Minimum Seed"]] or 1
+        local minTier = TierVal(GAG.Config["Minimum Seed"])
         local best, bestT = nil, math.huge
         for n, c in pairs(counts) do
             if c > 0 then
                 local tv = TierVal(n)
-                if tv >= minTier and tv < bestT then bestT = tv; best = n end
+                if Config.ShouldPlant(n) and tv >= minTier and tv < bestT then bestT = tv; best = n end
             end
         end
         return best
@@ -869,13 +1024,13 @@ do
         Utils.Log("PLANT", "Loop started")
         while GAG.Alive do
             pcall(function()
-                if GAG.Config["Auto Plant"] then
+                if GAG.Running and GAG.Config["Auto Plant"] then
                     local empty = Plant.GetEmptyPositions()
                     if #empty > 0 then
                         local seed = Plant.GetNextSeed()
                         if seed then
                             for _, pos in ipairs(empty) do
-                                if not GAG.Config["Auto Plant"] then break end
+                                if not GAG.Running or not GAG.Config["Auto Plant"] then break end
                                 Plant.PlantSeed(seed, pos)
                                 task.wait(0.5)
                                 seed = Plant.GetNextSeed()
@@ -957,7 +1112,9 @@ do
     function BuySeeds.Start()
         Utils.Log("BUYSEEDS", "Loop started")
         while GAG.Alive do
-            pcall(function() BuySeeds.ProcessConfig() end)
+            if GAG.Running then
+                pcall(function() BuySeeds.ProcessConfig() end)
+            end
             Utils.Sleep(15)
         end
     end
@@ -1001,10 +1158,12 @@ do
     function Pets.Start()
         Utils.Log("PETS", "Loop started")
         while GAG.Alive do
+            if GAG.Running then
             pcall(function()
                 local buyCfg = GAG.Config["Pets"]["Buy"]
                 local owned = Pets.GetOwned()
                 for k, v in pairs(buyCfg) do
+                    if not GAG.Running then break end
                     local name, limit
                     if type(k) == "number" then
                         name = v; limit = math.huge
@@ -1019,12 +1178,15 @@ do
 
                 local eqCfg = GAG.Config["Pets"]["Equip"]
                 for name, count in pairs(eqCfg) do
+                    if not GAG.Running then break end
                     for i = 1, count do
+                        if not GAG.Running then break end
                         Pets.Equip(name)
                         task.wait(0.3)
                     end
                 end
             end)
+            end
             Utils.Sleep(10)
         end
     end
@@ -1035,6 +1197,8 @@ end
 ---------------------------------------------------------------------------
 local Gear = {}
 do
+    local sprinklersPlaced = false
+
     function Gear.PlaceSprinklers()
         local cfg = GAG.Config["Gear"]["Place Sprinklers"]
         if not cfg then return end
@@ -1049,6 +1213,7 @@ do
                 local best = GAG.Config["Gear"]["Best Sprinkler Up To"] or "Rare Sprinkler"
                 Utils.Log("GEAR", "Placing " .. count .. " best sprinklers (up to " .. best .. ")")
                 for i = 1, count do
+                    if not GAG.Running then break end
                     local angle = (i - 1) * (2 * math.pi / count)
                     local r = 10
                     local pos = fp + Vector3.new(math.cos(angle) * r, 0, math.sin(angle) * r)
@@ -1057,6 +1222,7 @@ do
                 end
             else
                 for i = 1, count do
+                    if not GAG.Running then break end
                     local angle = (i - 1) * (2 * math.pi / count)
                     local pos = fp + Vector3.new(math.cos(angle) * 8, 0, math.sin(angle) * 8)
                     Utils.FireRemote("PlaceSprinkler", name, pos)
@@ -1072,6 +1238,7 @@ do
         local cash = Utils.GetMoney()
         local keep = GAG.Config["Gear"]["Keep Cash"] or 15000
         for _, name in ipairs(buyList) do
+            if not GAG.Running then break end
             if cash > keep then
                 Utils.FireRemote("BuyGear", name)
                 GAG.Stats.GearBought = GAG.Stats.GearBought + 1
@@ -1083,15 +1250,18 @@ do
 
     function Gear.Start()
         Utils.Log("GEAR", "Loop started")
-        if GAG.Config["Gear"]["Auto Buy"] then
-            pcall(Gear.PlaceSprinklers)
-        end
         while GAG.Alive do
+            if GAG.Running then
             pcall(function()
                 if GAG.Config["Gear"]["Auto Buy"] then
+                    if not sprinklersPlaced then
+                        Gear.PlaceSprinklers()
+                        sprinklersPlaced = true
+                    end
                     Gear.ProcessBuy()
                 end
             end)
+            end
             Utils.Sleep(10)
         end
     end
@@ -1107,7 +1277,15 @@ do
         ["Dragon Fruit"] = true, Grape = true, Lemon = true, Mango = true, Orange = true,
         Peach = true, Pear = true, Pineapple = true, Raspberry = true, Strawberry = true,
         Watermelon = true, Kiwi = true, Plum = true, Avocado = true, Starfruit = true,
+        Carrot = true, Tomato = true, Corn = true, Bamboo = true, Cactus = true,
+        Pumpkin = true, Mushroom = true, Pepper = true, Cacao = true, Beanstalk = true,
+        ["Moon Bloom"] = true, ["Dragon's Breath"] = true, ["Venus Fly Trap"] = true,
+        ["Orange Tulip"] = true,
     }
+
+    local function MailCleanName(name)
+        return tostring(name or ""):gsub("%b[]", ""):gsub("%b()", ""):gsub("%s+[%.%d]+%s*[Kk][Gg]", ""):gsub("%s+[%.%d]+%s*[Gg]", ""):gsub(" Seed$", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    end
 
     function Mail.Claim()
         if not Utils.FireRemote("ClaimMail") then
@@ -1118,7 +1296,28 @@ do
     end
 
     function Mail.SendItem(name, count)
-        if FRUITS[name] then return false end
+        if not tostring(name):lower():find("seed") and FRUITS[MailCleanName(name)] then return false end
+        if Config.ShouldNeverSell(name, nil) then
+            Utils.Log("MAIL", "Skipped protected item " .. tostring(name))
+            return false
+        end
+        for _, source in ipairs({LP:FindFirstChild("Backpack"), LP.Character}) do
+            if source then
+                for _, tool in ipairs(source:GetChildren()) do
+                    if tool:IsA("Tool") and tool.Name == name then
+                        local mutation = tool:GetAttribute("Mutation") or tool:GetAttribute("MutationName") or tool:GetAttribute("Mutated") or tool:GetAttribute("Variant")
+                        if mutation == true and next(GAG.Config._LK.NeverSellMut or {}) then
+                            Utils.Log("MAIL", "Skipped protected mutated item " .. tostring(name))
+                            return false
+                        end
+                        if Config.ShouldNeverSell(tool.Name, mutation) then
+                            Utils.Log("MAIL", "Skipped protected item " .. tostring(name))
+                            return false
+                        end
+                    end
+                end
+            end
+        end
         local target = GAG.Config["Mail"]["Send To"]
         if not target or target == "" then return false end
         if not Utils.FireRemote("SendMail", target, name, count) then
@@ -1143,6 +1342,7 @@ do
         end
 
         for _, entry in ipairs(sendCfg) do
+            if not GAG.Running then break end
             local itemName, reqCount
             if type(entry) == "string" then
                 itemName = entry; reqCount = counts[entry] or 0
@@ -1150,7 +1350,7 @@ do
                 itemName = entry.Item or entry[1]
                 reqCount = entry.Count or entry[2] or 0
             end
-            if itemName and not FRUITS[itemName] then
+            if itemName and (tostring(itemName):lower():find("seed") or not FRUITS[MailCleanName(itemName)]) then
                 local have = counts[itemName] or 0
                 local send = reqCount > 0 and math.min(have, reqCount) or have
                 if send > 0 then
@@ -1165,6 +1365,7 @@ do
         Utils.Log("MAIL", "Loop started")
         local lastSend = 0
         while GAG.Alive do
+            if GAG.Running then
             pcall(function()
                 if GAG.Config["Mail"]["Auto Claim"] then Mail.Claim() end
                 local sendTo = GAG.Config["Mail"]["Send To"]
@@ -1177,6 +1378,7 @@ do
                     end
                 end
             end)
+            end
             Utils.Sleep(10)
         end
     end
@@ -1288,11 +1490,13 @@ do
         Misc.ApplyPerformance()
         Misc.DailyDeal()
         while GAG.Alive do
+            if GAG.Running then
             pcall(function()
                 Misc.CollectEventSeeds()
                 Misc.AutoReturn()
                 Misc.ApplyWalkSpeed()
             end)
+            end
             Utils.Sleep(5)
         end
     end
@@ -1303,7 +1507,7 @@ end
 ---------------------------------------------------------------------------
 local StatsUI = {}
 do
-    local overlay, consoleFrame
+    local overlay, consoleFrame, menuFrame
     local labels = {}
     local consoleLines = {}
     local visible = GAG.Config["Misc"]["Show Stats"] ~= false
@@ -1429,11 +1633,81 @@ do
         consoleFrame.Visible = consoleVisible
         if consoleVisible then panel.Visible = false end
 
+        menuFrame = Instance.new("Frame")
+        menuFrame.Name = "Menu"
+        menuFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+        menuFrame.BackgroundTransparency = 0.08
+        menuFrame.BorderSizePixel = 0
+        menuFrame.Size = UDim2.new(0, 260, 0, 330)
+        menuFrame.Position = UDim2.new(0.5, -130, 0.5, -165)
+        menuFrame.Visible = false
+        menuFrame.Parent = overlay
+        Instance.new("UICorner", menuFrame).CornerRadius = UDim.new(0, 10)
+        local menuStroke = Instance.new("UIStroke", menuFrame)
+        menuStroke.Color = Color3.fromRGB(70, 70, 85)
+        menuStroke.Thickness = 1
+
+        local menuTitle = mkLabel(menuFrame, "GAG MENU", Enum.TextXAlignment.Center, Color3.fromRGB(100, 220, 140), 16)
+        menuTitle.Position = UDim2.new(0, 0, 0, 8)
+
+        local function menuButton(text, y, color, callback)
+            local btn = Instance.new("TextButton")
+            btn.BackgroundColor3 = color
+            btn.BackgroundTransparency = 0.05
+            btn.BorderSizePixel = 0
+            btn.Size = UDim2.new(1, -24, 0, 32)
+            btn.Position = UDim2.new(0, 12, 0, y)
+            btn.Font = Enum.Font.SourceSansBold
+            btn.Text = text
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btn.TextSize = 15
+            btn.Parent = menuFrame
+            Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+            btn.MouseButton1Click:Connect(callback)
+            return btn
+        end
+
+        local function refreshMenuButtons()
+        end
+
+        menuButton("START FARM", 44, Color3.fromRGB(40, 150, 80), function()
+            GAG.Running = true
+            Utils.Log("MENU", "Farm started")
+        end)
+        menuButton("STOP FARM", 82, Color3.fromRGB(170, 60, 55), function()
+            GAG.Running = false
+            Utils.Log("MENU", "Farm stopped")
+        end)
+        menuButton("TOGGLE HARVEST", 120, Color3.fromRGB(70, 100, 170), function()
+            GAG.Config["Auto Harvest"] = not GAG.Config["Auto Harvest"]
+            Utils.Log("MENU", "Auto Harvest = " .. tostring(GAG.Config["Auto Harvest"]))
+        end)
+        menuButton("TOGGLE PLANT", 158, Color3.fromRGB(70, 100, 170), function()
+            GAG.Config["Auto Plant"] = not GAG.Config["Auto Plant"]
+            Utils.Log("MENU", "Auto Plant = " .. tostring(GAG.Config["Auto Plant"]))
+        end)
+        menuButton("TOGGLE MAIL", 196, Color3.fromRGB(70, 100, 170), function()
+            GAG.Config["Mail"]["Auto Claim"] = not GAG.Config["Mail"]["Auto Claim"]
+            Utils.Log("MENU", "Mail Auto Claim = " .. tostring(GAG.Config["Mail"]["Auto Claim"]))
+        end)
+        menuButton("RUN DIAGNOSTIC", 234, Color3.fromRGB(165, 120, 35), function()
+            Utils.Diagnostics()
+            consoleVisible = true
+            if consoleFrame then consoleFrame.Visible = true end
+            if menuFrame then menuFrame.Visible = false end
+            panel.Visible = false
+        end)
+        menuButton("CLOSE MENU", 280, Color3.fromRGB(80, 80, 90), function()
+            menuFrame.Visible = false
+            local panel = overlay and overlay:FindFirstChild("Panel")
+            if panel then panel.Visible = visible and not consoleVisible end
+        end)
+
         local controls = Instance.new("Frame")
         controls.Name = "MobileControls"
         controls.BackgroundTransparency = 1
-        controls.Size = UDim2.new(0, 120, 0, 96)
-        controls.Position = UDim2.new(0, 12, 1, -110)
+        controls.Size = UDim2.new(0, 120, 0, 150)
+        controls.Position = UDim2.new(0, 12, 1, -160)
         controls.Parent = overlay
 
         local function makeButton(text, y, color)
@@ -1458,11 +1732,26 @@ do
             return btn
         end
 
-        makeButton("STATS", 0, Color3.fromRGB(45, 160, 95)).MouseButton1Click:Connect(function()
+        makeButton("MENU", 0, Color3.fromRGB(80, 110, 190)).MouseButton1Click:Connect(function()
+            if menuFrame then
+                menuFrame.Visible = not menuFrame.Visible
+                if menuFrame.Visible then
+                    consoleVisible = false
+                    if consoleFrame then consoleFrame.Visible = false end
+                    local panel = overlay and overlay:FindFirstChild("Panel")
+                    if panel then panel.Visible = false end
+                else
+                    local panel = overlay and overlay:FindFirstChild("Panel")
+                    if panel then panel.Visible = visible and not consoleVisible end
+                end
+            end
+        end)
+
+        makeButton("STATS", 50, Color3.fromRGB(45, 160, 95)).MouseButton1Click:Connect(function()
             StatsUI.Toggle()
         end)
 
-        makeButton("CONSOLE", 50, Color3.fromRGB(165, 120, 35)).MouseButton1Click:Connect(function()
+        makeButton("CONSOLE", 100, Color3.fromRGB(165, 120, 35)).MouseButton1Click:Connect(function()
             StatsUI.ToggleConsole()
         end)
 
@@ -1529,10 +1818,22 @@ do
     end
 
     function StatsUI.Toggle()
-        visible = not visible
+        local menuWasVisible = menuFrame and menuFrame.Visible
+        if menuFrame then menuFrame.Visible = false end
+        if menuWasVisible then
+            visible = true
+            consoleVisible = false
+            if consoleFrame then consoleFrame.Visible = false end
+        elseif consoleVisible then
+            consoleVisible = false
+            visible = true
+            if consoleFrame then consoleFrame.Visible = false end
+        else
+            visible = not visible
+        end
         if overlay then
             local p = overlay:FindFirstChild("Panel")
-            if p then p.Visible = visible and not consoleVisible end
+            if p then p.Visible = visible end
         end
     end
 
@@ -1540,6 +1841,9 @@ do
         consoleVisible = not consoleVisible
         if consoleFrame then
             consoleFrame.Visible = consoleVisible
+        end
+        if menuFrame and consoleVisible then
+            menuFrame.Visible = false
         end
         if overlay then
             local panel = overlay:FindFirstChild("Panel")
@@ -1554,10 +1858,10 @@ do
         StatsUI.Create()
 
         local acc = 0
-        RunService.Heartbeat:Connect(function(dt)
+        table.insert(GAG.Connections, RunService.Heartbeat:Connect(function(dt)
             acc = acc + dt
             if acc >= 1.5 then acc = 0; StatsUI.Update() end
-        end)
+        end))
 
         StatsUI.ConsoleLog("INFO", "Overlay started — use STATS / CONSOLE buttons")
     end
@@ -1608,5 +1912,6 @@ if not okStats then
     Utils.Log("ERROR", "StatsUI: " .. tostring(statsErr))
 end
 
-Utils.Log("BOOT", "All modules loaded! Use STATS / CONSOLE buttons.")
-Utils.Notify("GAG Autofarm", "All modules running! Use STATS / CONSOLE buttons.")
+Utils.Log("BOOT", "All modules loaded! Use MENU / STATS / CONSOLE buttons.")
+pcall(function() Utils.Diagnostics() end)
+Utils.Notify("GAG Autofarm", "Loaded. Use MENU to Start/Stop and run diagnostics.")
