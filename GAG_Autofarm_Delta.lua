@@ -118,12 +118,24 @@ local StarterGui        = game:GetService("StarterGui")
 local Lighting          = game:GetService("Lighting")
 
 local LP   = Players.LocalPlayer
-local Char = LP.Character or LP.CharacterAdded:Wait()
-local HRP  = Char:WaitForChild("HumanoidRootPart")
+local Char = LP.Character
+if not Char then
+    local started = tick()
+    repeat
+        task.wait(0.2)
+        Char = LP.Character
+    until Char or tick() - started > 20
+end
+local HRP = Char and (Char:FindFirstChild("HumanoidRootPart") or Char:WaitForChild("HumanoidRootPart", 20)) or nil
 
 ---------------------------------------------------------------------------
 -- GLOBAL STATE
 ---------------------------------------------------------------------------
+if type(_G.GAG) == "table" then
+    _G.GAG.Alive = false
+    _G.GAG.Running = false
+end
+
 _G.GAG = {
     Alive    = true,
     Running  = true,
@@ -207,6 +219,16 @@ do
 
     local function Init()
         local cfg = DeepMerge(DEFAULTS, GAG.Config or {})
+        for _, key in ipairs({"Never Sell", "Pets", "Gear", "Event Seeds", "Mail", "Misc", "Friends", "Performance", "Debug"}) do
+            if type(cfg[key]) ~= "table" then
+                cfg[key] = DeepMerge(DEFAULTS[key], {})
+            end
+        end
+        for _, key in ipairs({"By Mutation", "By Fruit", "Exact"}) do
+            if type(cfg["Never Sell"][key]) ~= "table" then
+                cfg["Never Sell"][key] = {}
+            end
+        end
         -- Clamp
         cfg["Sell At"] = math.clamp(tonumber(cfg["Sell At"]) or 85, 1, 200)
         cfg["Sell Every"] = math.max(tonumber(cfg["Sell Every"]) or 40, 0)
@@ -286,6 +308,8 @@ end
 ---------------------------------------------------------------------------
 local Utils = {}
 do
+    local remoteCache = {}
+
     local function SafeRoot()
         local c = LP.Character or LP.CharacterAdded:Wait()
         return c, c:FindFirstChild("HumanoidRootPart"), c:FindFirstChildOfClass("Humanoid")
@@ -418,9 +442,17 @@ do
     end
 
     function Utils.FindRemote(name)
+        if remoteCache[name] and remoteCache[name].Parent then
+            return remoteCache[name]
+        end
+        local lname = tostring(name):lower()
         local function search(cont)
+            local scanned = 0
             for _, ch in ipairs(cont:GetDescendants()) do
-                if (ch:IsA("RemoteEvent") or ch:IsA("RemoteFunction")) and ch.Name:lower():find(name:lower()) then
+                scanned = scanned + 1
+                if scanned > 3000 then break end
+                if (ch:IsA("RemoteEvent") or ch:IsA("RemoteFunction")) and ch.Name:lower():find(lname, 1, true) then
+                    remoteCache[name] = ch
                     return ch
                 end
             end
@@ -432,7 +464,8 @@ do
         local r = Utils.FindRemote(name)
         if not r then Utils.Log("Remote", "Not found: " .. name); return false end
         if not r:IsA("RemoteEvent") then return false end
-        local ok, err = pcall(function() r:FireServer(...) end)
+        local args = {...}
+        local ok, err = pcall(function() r:FireServer(unpack(args)) end)
         if not ok then Utils.Log("Remote", name .. " err: " .. tostring(err)) end
         return ok
     end
@@ -440,7 +473,8 @@ do
     function Utils.InvokeRemote(name, ...)
         local r = Utils.FindRemote(name)
         if not r or not r:IsA("RemoteFunction") then return nil end
-        local ok, res = pcall(function() return r:InvokeServer(...) end)
+        local args = {...}
+        local ok, res = pcall(function() return r:InvokeServer(unpack(args)) end)
         return ok and res or nil
     end
 
@@ -544,9 +578,11 @@ do
 
         local prompt = plant:FindFirstChildWhichIsA("ProximityPrompt", true)
         if prompt then
-            prompt:InputHoldBegin()
-            task.wait(prompt.HoldDuration or 0.2)
-            prompt:InputHoldEnd()
+            pcall(function()
+                prompt:InputHoldBegin()
+                task.wait(prompt.HoldDuration or 0.2)
+                prompt:InputHoldEnd()
+            end)
         else
             Utils.FireRemote("Harvest", plant)
         end
@@ -656,7 +692,7 @@ do
     function Plant.GetPlotPositions()
         local farm = Utils.GetFarm()
         if not farm then return {} end
-        local primary = (farm:IsA("Model") and farm.PrimaryPart) or farm:FindFirstChildWhichIsA("BasePart", true)
+        local primary = (farm:IsA("BasePart") and farm) or (farm:IsA("Model") and farm.PrimaryPart) or farm:FindFirstChildWhichIsA("BasePart", true)
         if not primary then return {} end
         local fp, fs = primary.Position, primary.Size
         local lo = LAYOUT[GAG.Config["Layout"]] or LAYOUT.compact
@@ -707,12 +743,16 @@ do
         end
         if not tool then return false end
         if tool.Parent == bp then
-            ch:WaitForChild("Humanoid"):EquipTool(tool)
+            local hum = ch:FindFirstChildOfClass("Humanoid") or ch:WaitForChild("Humanoid", 5)
+            if not hum then return false end
+            pcall(function() hum:EquipTool(tool) end)
             task.wait(0.2)
         end
         Utils.TeleportTo(pos)
         task.wait(0.15)
-        Utils.FireRemote("PlantSeed", name, pos) or Utils.FireRemote("Plant", name, pos)
+        if not Utils.FireRemote("PlantSeed", name, pos) then
+            Utils.FireRemote("Plant", name, pos)
+        end
         GAG.Stats.Planted = GAG.Stats.Planted + 1
         task.wait(0.3)
         return true
@@ -722,7 +762,9 @@ do
         local name = plant:GetAttribute("SeedName") or plant.Name
         if IsProtected(plant) then return false end
         if not Config.ShouldShovel(name) then return false end
-        Utils.FireRemote("ShovelPlant", plant) or Utils.FireRemote("Shovel", plant)
+        if not Utils.FireRemote("ShovelPlant", plant) then
+            Utils.FireRemote("Shovel", plant)
+        end
         GAG.Stats.Shoveled = GAG.Stats.Shoveled + 1
         task.wait(0.3)
         return true
@@ -733,7 +775,9 @@ do
         local cash = Utils.GetMoney()
         if cash < GAG.Config["Expand If Over"] then return false end
         if GAG.Stats.Expanded >= (GAG.Config["Max Expansions"]) then return false end
-        Utils.FireRemote("ExpandPlot") or Utils.FireRemote("BuyExpansion")
+        if not Utils.FireRemote("ExpandPlot") then
+            Utils.FireRemote("BuyExpansion")
+        end
         GAG.Stats.Expanded = GAG.Stats.Expanded + 1
         task.wait(0.5)
         return true
@@ -823,25 +867,27 @@ do
 
     function Plant.Start()
         Utils.Log("PLANT", "Loop started")
-        while GAG.Config["Auto Plant"] and GAG.Alive do
+        while GAG.Alive do
             pcall(function()
-                local empty = Plant.GetEmptyPositions()
-                if #empty > 0 then
-                    local seed = Plant.GetNextSeed()
-                    if seed then
-                        for _, pos in ipairs(empty) do
-                            if not GAG.Config["Auto Plant"] then break end
-                            Plant.PlantSeed(seed, pos)
-                            task.wait(0.5)
-                            seed = Plant.GetNextSeed()
-                            if not seed then break end
+                if GAG.Config["Auto Plant"] then
+                    local empty = Plant.GetEmptyPositions()
+                    if #empty > 0 then
+                        local seed = Plant.GetNextSeed()
+                        if seed then
+                            for _, pos in ipairs(empty) do
+                                if not GAG.Config["Auto Plant"] then break end
+                                Plant.PlantSeed(seed, pos)
+                                task.wait(0.5)
+                                seed = Plant.GetNextSeed()
+                                if not seed then break end
+                            end
                         end
+                    else
+                        Plant.ReplacePlants()
                     end
-                else
-                    Plant.ReplacePlants()
+                    Plant.RespectLimit()
+                    Plant.ExpandPlot()
                 end
-                Plant.RespectLimit()
-                Plant.ExpandPlot()
             end)
             Utils.Sleep(2)
         end
@@ -880,7 +926,9 @@ do
         if not Config.ShouldBuySeed(name) then return false end
         local cash = Utils.GetMoney()
         if cash < GAG.Config["Keep Cash"] then return false end
-        Utils.FireRemote("BuySeed", name, amount) or Utils.FireRemote("Buy", name, amount)
+        if not Utils.FireRemote("BuySeed", name, amount) then
+            Utils.FireRemote("Buy", name, amount)
+        end
         GAG.Stats.SeedsBought = GAG.Stats.SeedsBought + amount
         Utils.Log("BUY", amount .. "x " .. name)
         return true
@@ -932,7 +980,9 @@ do
     end
 
     function Pets.Buy(name)
-        Utils.FireRemote("BuyPet", name) or Utils.FireRemote("PurchasePet", name)
+        if not Utils.FireRemote("BuyPet", name) then
+            Utils.FireRemote("PurchasePet", name)
+        end
         GAG.Stats.PetsBought = GAG.Stats.PetsBought + 1
         Utils.Log("PET", "Bought " .. name)
     end
@@ -990,7 +1040,7 @@ do
         if not cfg then return end
         local farm = Utils.GetFarm()
         if not farm then return end
-        local primary = (farm:IsA("Model") and farm.PrimaryPart) or farm:FindFirstChildWhichIsA("BasePart", true)
+        local primary = (farm:IsA("BasePart") and farm) or (farm:IsA("Model") and farm.PrimaryPart) or farm:FindFirstChildWhichIsA("BasePart", true)
         if not primary then return end
         local fp = primary.Position
 
@@ -1060,7 +1110,9 @@ do
     }
 
     function Mail.Claim()
-        Utils.FireRemote("ClaimMail") or Utils.FireRemote("MailClaim")
+        if not Utils.FireRemote("ClaimMail") then
+            Utils.FireRemote("MailClaim")
+        end
         GAG.Stats.MailSent = GAG.Stats.MailSent -- keep
         Utils.Log("MAIL", "Claimed mail")
     end
@@ -1069,7 +1121,9 @@ do
         if FRUITS[name] then return false end
         local target = GAG.Config["Mail"]["Send To"]
         if not target or target == "" then return false end
-        Utils.FireRemote("SendMail", target, name, count) or Utils.FireRemote("MailSend", target, name, count)
+        if not Utils.FireRemote("SendMail", target, name, count) then
+            Utils.FireRemote("MailSend", target, name, count)
+        end
         GAG.Stats.MailSent = GAG.Stats.MailSent + count
         Utils.Log("MAIL", "Sent " .. count .. "x " .. name .. " to " .. target)
         return true
@@ -1151,7 +1205,24 @@ do
                 local farms = workspace:FindFirstChild("Farms") or workspace:FindFirstChild("Plots")
                 if farms then
                     for _, plot in ipairs(farms:GetChildren()) do
-                        if plot.Name ~= LP.Name then plot:Destroy() end
+                        local own = plot.Name == LP.Name
+                        local owner = plot:FindFirstChild("Owner") or plot:FindFirstChild("OwnerValue")
+                        if owner then
+                            if owner:IsA("StringValue") and owner.Value == LP.Name then own = true end
+                            if owner:IsA("ObjectValue") and owner.Value == LP then own = true end
+                        end
+                        if not own then
+                            for _, obj in ipairs(plot:GetDescendants()) do
+                                if obj:IsA("BasePart") then
+                                    obj.LocalTransparencyModifier = 1
+                                    obj.CanCollide = false
+                                elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                                    obj.Transparency = 1
+                                elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+                                    obj.Enabled = false
+                                end
+                            end
+                        end
                     end
                 end
             end)
@@ -1172,7 +1243,10 @@ do
 
     function Misc.CollectEventSeeds()
         if not GAG.Config["Event Seeds"]["Auto Claim"] then return end
+        local scanned = 0
         for _, obj in ipairs(workspace:GetDescendants()) do
+            scanned = scanned + 1
+            if scanned > 1000 then break end
             if obj:IsA("BasePart") and (obj:GetAttribute("IsEventSeed") or obj.Name:lower():find("eventseed")) then
                 Utils.TeleportTo(obj.Position)
                 task.wait(0.3)
@@ -1185,7 +1259,7 @@ do
         if not gardenPos then
             local farm = Utils.GetFarm()
             if farm then
-                local p = (farm:IsA("Model") and farm.PrimaryPart) or farm:FindFirstChildWhichIsA("BasePart", true)
+                local p = (farm:IsA("BasePart") and farm) or (farm:IsA("Model") and farm.PrimaryPart) or farm:FindFirstChildWhichIsA("BasePart", true)
                 if p then gardenPos = p.Position end
             end
         end
@@ -1285,8 +1359,8 @@ do
         panel.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
         panel.BackgroundTransparency = 0.15
         panel.BorderSizePixel = 0
-        panel.Size = UDim2.new(0, 260, 0, 370)
-        panel.Position = UDim2.new(1, -275, 0, 15)
+        panel.Size = UDim2.new(0, 250, 0, 330)
+        panel.Position = UDim2.new(1, -262, 0, 12)
         panel.Parent = overlay
         panel.Visible = visible
         Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 8)
@@ -1338,8 +1412,8 @@ do
         consoleFrame = Instance.new("Frame")
         consoleFrame.Name = "Console"; consoleFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
         consoleFrame.BackgroundTransparency = 0.1; consoleFrame.BorderSizePixel = 0
-        consoleFrame.Size = UDim2.new(1, -24, 0, 260)
-        consoleFrame.Position = UDim2.new(0, 12, 0, 395)
+        consoleFrame.Size = UDim2.new(1, -150, 0, 210)
+        consoleFrame.Position = UDim2.new(0, 12, 0, 12)
         consoleFrame.Parent = overlay
         Instance.new("UICorner", consoleFrame).CornerRadius = UDim.new(0, 8)
         local cs = Instance.new("UIStroke", consoleFrame); cs.Color = Color3.fromRGB(45, 45, 55); cs.Thickness = 1
@@ -1353,22 +1427,23 @@ do
         scrolling.Parent = consoleFrame
         Instance.new("UIListLayout", scrolling).Padding = UDim.new(0, 1)
         consoleFrame.Visible = consoleVisible
+        if consoleVisible then panel.Visible = false end
 
         local controls = Instance.new("Frame")
         controls.Name = "MobileControls"
         controls.BackgroundTransparency = 1
-        controls.Size = UDim2.new(0, 240, 0, 48)
-        controls.Position = UDim2.new(0, 12, 1, -60)
+        controls.Size = UDim2.new(0, 120, 0, 96)
+        controls.Position = UDim2.new(0, 12, 1, -110)
         controls.Parent = overlay
 
-        local function makeButton(text, x, color)
+        local function makeButton(text, y, color)
             local btn = Instance.new("TextButton")
             btn.Name = text .. "Button"
             btn.BackgroundColor3 = color
             btn.BackgroundTransparency = 0.08
             btn.BorderSizePixel = 0
             btn.Size = UDim2.new(0, 110, 0, 44)
-            btn.Position = UDim2.new(0, x, 0, 0)
+            btn.Position = UDim2.new(0, 0, 0, y)
             btn.Font = Enum.Font.RobotoMono
             btn.Text = text
             btn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1387,11 +1462,13 @@ do
             StatsUI.Toggle()
         end)
 
-        makeButton("CONSOLE", 122, Color3.fromRGB(165, 120, 35)).MouseButton1Click:Connect(function()
+        makeButton("CONSOLE", 50, Color3.fromRGB(165, 120, 35)).MouseButton1Click:Connect(function()
             StatsUI.ToggleConsole()
         end)
 
-        overlay.Parent = LP:WaitForChild("PlayerGui")
+        local playerGui = LP:FindFirstChild("PlayerGui") or LP:WaitForChild("PlayerGui", 10)
+        if not playerGui then return end
+        overlay.Parent = playerGui
     end
 
     function StatsUI.ConsoleLog(tag, msg)
@@ -1399,22 +1476,22 @@ do
         local scroll = consoleFrame:FindFirstChild("Scroll", true)
         if not scroll then return end
         local line = Instance.new("Frame"); line.BackgroundTransparency = 1
-        line.Size = UDim2.new(1, 0, 0, 16); line.Parent = scroll
+        line.Size = UDim2.new(1, 0, 0, 18); line.Parent = scroll
 
         local ts = Instance.new("TextLabel"); ts.BackgroundTransparency = 1
         ts.Font = Enum.Font.RobotoMono; ts.TextColor3 = Color3.fromRGB(100, 100, 100)
-        ts.TextSize = 11; ts.TextXAlignment = Enum.TextXAlignment.Left
+        ts.TextSize = 12; ts.TextXAlignment = Enum.TextXAlignment.Left
         ts.Size = UDim2.new(0, 62, 1, 0); ts.Text = os.date("%H:%M:%S"); ts.Parent = line
 
         local tl = Instance.new("TextLabel"); tl.BackgroundTransparency = 1
         tl.Font = Enum.Font.RobotoMono; tl.TextColor3 = TAG_COLORS[tag] or TAG_COLORS.INFO
-        tl.TextSize = 11; tl.TextXAlignment = Enum.TextXAlignment.Left
+        tl.TextSize = 12; tl.TextXAlignment = Enum.TextXAlignment.Left
         tl.Size = UDim2.new(0, 50, 1, 0); tl.Position = UDim2.new(0, 64, 0, 0)
         tl.Text = "[" .. tag .. "]"; tl.Parent = line
 
         local ml = Instance.new("TextLabel"); ml.BackgroundTransparency = 1
         ml.Font = Enum.Font.RobotoMono; ml.TextColor3 = Color3.fromRGB(200, 200, 200)
-        ml.TextSize = 11; ml.TextXAlignment = Enum.TextXAlignment.Left
+        ml.TextSize = 12; ml.TextXAlignment = Enum.TextXAlignment.Left
         ml.TextTruncate = Enum.TextTruncate.AtEnd
         ml.Size = UDim2.new(1, -118, 1, 0); ml.Position = UDim2.new(0, 118, 0, 0)
         ml.Text = tostring(msg); ml.Parent = line
@@ -1424,6 +1501,9 @@ do
             local old = table.remove(consoleLines, 1)
             if old and old.Parent then old:Destroy() end
         end
+        pcall(function()
+            scroll.CanvasPosition = Vector2.new(0, math.max(0, scroll.AbsoluteCanvasSize.Y - scroll.AbsoluteWindowSize.Y))
+        end)
     end
 
     function StatsUI.Update()
@@ -1452,7 +1532,7 @@ do
         visible = not visible
         if overlay then
             local p = overlay:FindFirstChild("Panel")
-            if p then p.Visible = visible end
+            if p then p.Visible = visible and not consoleVisible end
         end
     end
 
@@ -1460,6 +1540,12 @@ do
         consoleVisible = not consoleVisible
         if consoleFrame then
             consoleFrame.Visible = consoleVisible
+        end
+        if overlay then
+            local panel = overlay:FindFirstChild("Panel")
+            if panel then
+                panel.Visible = (not consoleVisible) and visible
+            end
         end
     end
 
@@ -1489,7 +1575,10 @@ end
 ---------------------------------------------------------------------------
 -- BOOT
 ---------------------------------------------------------------------------
-Utils.WaitForReady()
+local ready = Utils.WaitForReady(20)
+if not ready then
+    Utils.Log("BOOT", "Character not fully ready; continuing with safe guards")
+end
 
 Utils.Log("BOOT", "All systems starting...")
 
@@ -1514,7 +1603,10 @@ for _, mod in ipairs(modules) do
 end
 
 -- Stats overlay (must run on main thread for GUI)
-StatsUI.Start()
+local okStats, statsErr = pcall(StatsUI.Start)
+if not okStats then
+    Utils.Log("ERROR", "StatsUI: " .. tostring(statsErr))
+end
 
 Utils.Log("BOOT", "All modules loaded! Use STATS / CONSOLE buttons.")
 Utils.Notify("GAG Autofarm", "All modules running! Use STATS / CONSOLE buttons.")
