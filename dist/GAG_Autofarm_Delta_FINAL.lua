@@ -512,12 +512,21 @@ function KrassUI.new(config)
 	minimize.ZIndex = 5
 	corner(8).Parent = minimize
 
-	local sidebar = new("Frame", {
+	local sidebar = new("ScrollingFrame", {
+		Active = true,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		BackgroundColor3 = theme.Panel,
 		BorderSizePixel = 0,
+		CanvasSize = UDim2.fromOffset(0, 0),
+		ClipsDescendants = true,
+		ElasticBehavior = Enum.ElasticBehavior.Always,
 		Parent = root,
 		Position = UDim2.fromOffset(0, 57),
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		ScrollBarImageColor3 = theme.Accent,
+		ScrollBarThickness = 8,
 		Size = UDim2.new(0, 166, 1, -57),
+		VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
 		ZIndex = 3,
 	})
 	padding(12).Parent = sidebar
@@ -744,6 +753,7 @@ function Window:ApplyResponsiveLayout(skipAnimation)
 
 	self.Sidebar.Position = UDim2.fromOffset(0, contentTop)
 	self.Sidebar.Size = UDim2.new(0, sideWidth, 1, -contentTop)
+	self.Sidebar.ScrollBarThickness = compact and 10 or 8
 	local sidebarPad = self.Sidebar:FindFirstChildOfClass("UIPadding")
 	if sidebarPad then
 		sidebarPad.PaddingBottom = UDim.new(0, sidebarPadding)
@@ -2921,6 +2931,7 @@ local stealTab = ui:Tab("Steal")
 local miscTab = ui:Tab("Misc")
 local settingsTab = ui:Tab("Settings")
 
+-- Sidebar kiri sekarang scrollable: mouse wheel / drag di area tab untuk akses tab bawah.
 local currentPreset = "Manual"
 local function setManualOff()
     S.autoFarm = false; S.autoBuy = false; S.autoPlant = false; S.autoHarvest = false; S.autoSell = false
