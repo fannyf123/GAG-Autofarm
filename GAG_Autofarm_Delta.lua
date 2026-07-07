@@ -2611,6 +2611,7 @@ local ui = KrassUI.new({
     ToggleKey = Enum.KeyCode.LeftControl,
 })
 
+local dashboardTab = ui:Tab("Dashboard")
 local farmTab = ui:Tab("Farm")
 local boostsTab = ui:Tab("Boosts")
 local petsTab = ui:Tab("Pets")
@@ -2619,6 +2620,47 @@ local shopTab = ui:Tab("Shop")
 local stealTab = ui:Tab("Steal")
 local miscTab = ui:Tab("Misc")
 local settingsTab = ui:Tab("Settings")
+
+local currentPreset = "Manual"
+local function setManualOff()
+    S.autoFarm = false; S.autoBuy = false; S.autoPlant = false; S.autoHarvest = false; S.autoSell = false
+    S.autoExpand = false; S.autoDaily = false; S.autoSprinkler = false; S.autoWater = false; S.autoSkill = false
+    S.autoEquipPets = false; S.autoPetSlot = false; S.autoBuyPets = false; S.autoSellPets = false
+    S.autoEgg = false; S.autoCrate = false; S.autoPack = false; S.autoGear = false; S.autoSteal = false
+    S.autoMail = false; S.autoAcceptGift = false; S.autoHop = false; S.allowServerHop = false; S.autoCodes = false
+    currentPreset = "Manual"
+    warn("[GAGConfig] Manual selected: all automation OFF")
+end
+local function applyGuiPreset(name)
+    if name == "Manual" then
+        setManualOff()
+    else
+        gagApplyConfig({ Preset = name })
+        currentPreset = name
+        warn("[GAGConfig] GUI preset selected: " .. tostring(name))
+    end
+    pcall(function() ui:Notify("Preset", currentPreset, 2.5) end)
+end
+
+-- ---- DASHBOARD ----
+local secDash = dashboardTab:Section("Quick Status")
+local dashPreset = secDash:Label("Preset: Manual")
+local dashFarm = secDash:Label("Farm: OFF")
+local dashCash = secDash:Label("Sheckles: …")
+local dashStats = secDash:Label("bought 0 · planted 0 · harvested 0 · sold 0")
+
+local secQuick = dashboardTab:Section("Quick Presets")
+secQuick:Button("Manual / Stop All", function() applyGuiPreset("Manual") end)
+secQuick:Button("Starter — akun baru", function() applyGuiPreset("Starter") end)
+secQuick:Button("Balanced — umum", function() applyGuiPreset("Balanced") end)
+secQuick:Button("Rich — akun besar", function() applyGuiPreset("Rich") end)
+secQuick:Button("Alt → Main", function() applyGuiPreset("AltToMain") end)
+secQuick:Button("Low PC / HP berat", function() applyGuiPreset("LowPC") end)
+
+local secDashTips = dashboardTab:Section("Alur Pakai")
+secDashTips:Label("1) Pilih preset di atas, atau tetap Manual")
+secDashTips:Label("2) Atur detail di tab Farm / Boosts / Pets")
+secDashTips:Label("3) Server-hop = rejoin, biarkan OFF kalau AFK")
 
 -- ---- FARM ----
 local secStatus = farmTab:Section("Status")
@@ -2720,19 +2762,7 @@ secCode:Toggle("Auto-redeem code list", false, function(v) S.autoCodes = v end)
 -- ---- SETTINGS ----
 local secPreset = settingsTab:Section("Preset Farm")
 secPreset:Label("Default Manual: pilih preset kalau mau auto-set farm")
-secPreset:Dropdown("Select preset", { "Manual", "Starter", "Balanced", "Rich", "AltToMain", "LowPC" }, "Manual", function(v)
-    if v == "Manual" then
-        S.autoFarm = false; S.autoBuy = false; S.autoPlant = false; S.autoHarvest = false; S.autoSell = false
-        S.autoExpand = false; S.autoDaily = false; S.autoSprinkler = false; S.autoWater = false; S.autoSkill = false
-        S.autoEquipPets = false; S.autoPetSlot = false; S.autoBuyPets = false; S.autoSellPets = false
-        S.autoEgg = false; S.autoCrate = false; S.autoPack = false; S.autoGear = false; S.autoSteal = false
-        S.autoMail = false; S.autoAcceptGift = false; S.autoHop = false; S.allowServerHop = false; S.autoCodes = false
-        warn("[GAGConfig] Manual preset selected: all automation OFF")
-        return
-    end
-    gagApplyConfig({ Preset = v })
-    warn("[GAGConfig] GUI preset selected: " .. tostring(v))
-end)
+secPreset:Dropdown("Select preset", { "Manual", "Starter", "Balanced", "Rich", "AltToMain", "LowPC" }, "Manual", applyGuiPreset)
 
 local secPerf = settingsTab:Section("Performance & Interface")
 secPerf:Toggle("FPS Boost (low graphics)", false, function(v) S.fpsBoost = v; applyFpsBoost(v) end)
@@ -2752,7 +2782,9 @@ secInfo:Label("Hotkey: Left Ctrl toggles UI")
 task.defer(function()
     task.wait(0.25)
     local env = type(getgenv) == "function" and getgenv() or _G
-    gagApplyConfig(env.GAGConfig or _G.GAGConfig or {})
+    local cfg = env.GAGConfig or _G.GAGConfig or {}
+    gagApplyConfig(cfg)
+    currentPreset = cfg.Preset or cfg.preset or currentPreset
 end)
 
 
@@ -2771,10 +2803,17 @@ end)
 task.spawn(function()
     while not S.killed do
         local p = myPlot()
+        local cashText = string.format("Sheckles: %s · Tokens: %s", fmt(getSheckles()), fmt(getTokens()))
+        local statText = string.format("bought %d · planted %d · harvested %d · sold %d (+%s)",
+            Stats.bought, Stats.planted, Stats.harvested, Stats.sold, fmt(Stats.earned))
+        local farmOn = S.autoFarm or S.autoBuy or S.autoPlant or S.autoHarvest or S.autoSell or S.autoExpand or S.autoDaily
         pcall(function() plotLabel:Set("Plot: " .. (p and p.Name or "?")) end)
-        pcall(function() cashLabel:Set(string.format("Sheckles: %s · Tokens: %s", fmt(getSheckles()), fmt(getTokens()))) end)
-        pcall(function() statLabel:Set(string.format("bought %d · planted %d · harvested %d · sold %d (+%s)",
-            Stats.bought, Stats.planted, Stats.harvested, Stats.sold, fmt(Stats.earned))) end)
+        pcall(function() cashLabel:Set(cashText) end)
+        pcall(function() statLabel:Set(statText) end)
+        pcall(function() dashPreset:Set("Preset: " .. tostring(currentPreset)) end)
+        pcall(function() dashFarm:Set("Farm: " .. (farmOn and "ON" or "OFF")) end)
+        pcall(function() dashCash:Set(cashText) end)
+        pcall(function() dashStats:Set(statText) end)
         task.wait(2)
     end
 end)
