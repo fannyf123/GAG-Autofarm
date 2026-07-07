@@ -1552,6 +1552,7 @@ end
 function Section:Dropdown(text, options, default, callback)
 	local theme = self.Window.Theme
 	local compact = self.Window.IsCompact
+	options = type(options) == "table" and options or {}
 	local selected = (type(default) == "string" and default ~= "") and default or options[1] or ""
 	local open = false
 	local rowHeight = self.Window.IsCompact and 56 or 46
@@ -2564,6 +2565,11 @@ local function equippedPetNames(limit)
     table.sort(names)
     return #names > 0 and table.concat(names, ", ") or "none detected"
 end
+local PET_NAMES = {
+    "All valid targets", "Dog", "Golden Lab", "Bunny", "Black Bunny", "Chicken", "Cat", "Deer",
+    "Orange Tabby", "Spotted Deer", "Pig", "Rooster", "Monkey", "Cow", "Silver Monkey",
+    "Sea Otter", "Turtle", "Polar Bear", "Dragonfly", "Raccoon", "Disco Bee", "Butterfly",
+}
 local function petToolsByName(name)
     local out = {}
     for _, t in ipairs(toolsByAttr("PetId")) do
@@ -3293,7 +3299,7 @@ secPet:Toggle("Auto-Buy pet slots", false, function(v) S.autoPetSlot = v end)
 secPet:Label("Equip pet = buff/effect, tidak teleport.")
 
 local secPetHunt = petsTab:Section("World Pet Buy / Hunt")
-secPetHunt:Dropdown("World pet buy targets", PET_NAMES, {}, function(sel) pickMulti(sel, S.buyPets) end)
+secPetHunt:Dropdown("World pet buy targets", PET_NAMES, {}, function(sel) pickMulti(sel, S.buyPets); S.buyPets["All valid targets"] = nil end)
 secPetHunt:Toggle("Auto-Buy world pets", false, function(v) S.autoBuyPets = v end)
 secPetHunt:Slider("Max pet price (Sheckles)", 25000, 1000, 1000000, function(v) S.maxPetPrice = v end)
 secPetHunt:Toggle("TP only after valid target", true, function(v) S.petTeleport = v end)
