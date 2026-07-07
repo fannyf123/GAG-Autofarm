@@ -1772,6 +1772,19 @@ local function gearCatalog()
 end
 local CATALOG = seedCatalog()
 local SEED_NAMES = {} ; for _, s in ipairs(CATALOG) do SEED_NAMES[#SEED_NAMES + 1] = s.name end
+local SEED_NAME_LOOKUP = {}
+for _, n in ipairs(SEED_NAMES) do SEED_NAME_LOOKUP[string.lower(n)] = n end
+local function normalizeSeedName(raw)
+    if raw == nil then return nil end
+    local s = tostring(raw)
+    if s == "" then return nil end
+    local lower = string.lower(s)
+    if SEED_NAME_LOOKUP[lower] then return SEED_NAME_LOOKUP[lower] end
+    for _, n in ipairs(SEED_NAMES) do
+        if string.find(lower, string.lower(n), 1, true) then return n end
+    end
+    return nil
+end
 local GEAR_NAMES = gearCatalog()
 
 local function stockOf(shop, name)
@@ -2948,17 +2961,30 @@ local function gardenScanSummary(limit)
     local plot = myPlot()
     local plants = plot and plot:FindFirstChild("Plants")
     if not plants then return "no plot/plants detected" end
-    local counts, total = {}, 0
-    for _, obj in ipairs(plants:GetDescendants()) do
-        local name = obj:GetAttribute("PlantName") or obj:GetAttribute("SeedName") or obj:GetAttribute("Name")
-        if not name and obj:IsA("Model") then name = obj.Name end
-        if name and name ~= "" then counts[tostring(name)] = (counts[tostring(name)] or 0) + 1; total += 1 end
+    local counts, total, unknown = {}, 0, 0
+    for _, obj in ipairs(plants:GetChildren()) do
+        local raw = obj:GetAttribute("PlantName") or obj:GetAttribute("SeedName") or obj:GetAttribute("Name") or obj.Name
+        local name = normalizeSeedName(raw)
+        if not name then
+            for _, d in ipairs(obj:GetDescendants()) do
+                raw = d:GetAttribute("PlantName") or d:GetAttribute("SeedName") or d:GetAttribute("Name")
+                name = normalizeSeedName(raw)
+                if name then break end
+            end
+        end
+        if name then
+            counts[name] = (counts[name] or 0) + 1
+        else
+            unknown += 1
+        end
+        total += 1
     end
     local rows = {}
     for name, count in pairs(counts) do rows[#rows + 1] = { name = name, count = count } end
     table.sort(rows, function(a, b) return a.count > b.count end)
     local out = {}
     for i = 1, math.min(limit, #rows) do out[#out + 1] = rows[i].name .. " x" .. tostring(rows[i].count) end
+    if unknown > 0 then out[#out + 1] = "Unknown x" .. tostring(unknown) end
     return (#out > 0 and table.concat(out, ", ") or "empty") .. " | total " .. tostring(total)
 end
 
