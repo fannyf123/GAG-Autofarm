@@ -2000,6 +2000,7 @@ local S = {
     webhookEnabled = false, webhookUrl = "", webhookInterval = 300, webhookEvents = true, webhookReport = true,
     killed = false,
 }
+local currentPreset = "Manual"
 local Stats = { bought = 0, planted = 0, harvested = 0, sold = 0, earned = 0,
     sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock(),
     state = "IDLE", lastAction = "idle", petLast = "idle", webhookLastOk = 0, webhookNextAt = 0, webhookLastError = "none" }
@@ -3098,7 +3099,7 @@ local miscTab = ui:Tab("Misc")
 local settingsTab = ui:Tab("Settings")
 
 -- Sidebar kiri sekarang scrollable: mouse wheel / drag di area tab untuk akses tab bawah.
-local currentPreset = "Manual"
+currentPreset = currentPreset or "Manual"
 local function setManualOff()
     S.autoFarm = false; S.autoBuy = false; S.autoPlant = false; S.autoHarvest = false; S.autoSell = false
     S.autoExpand = false; S.autoDaily = false; S.autoSprinkler = false; S.autoWater = false; S.autoSkill = false
