@@ -1975,7 +1975,7 @@ local S = {
     -- buy / plant / harvest / sell
     autoBuy = false, buySeeds = {}, buyInterval = 5, buyPerTick = 8,
     autoPlant = false, plantSpacing = 4, plantSeed = "Best owned", plantPlan = {}, plantLimit = 0, keepSeeds = {},
-    autoHarvest = false, harvestInterval = 2, harvestDelay = 0.01, onlyHarvest = {}, dontHarvest = {}, neverSellFruit = {}, neverSellMut = {},
+    autoHarvest = false, harvestInterval = 2, harvestDelay = 0.01, spamHarvest = false, spamHarvestBatch = 35, onlyHarvest = {}, dontHarvest = {}, neverSellFruit = {}, neverSellMut = {},
     autoSell = false, sellAt = 85, sellInterval = 15,
     autoExpand = false, autoPot = false, autoDaily = false,
     -- boosts
@@ -2356,7 +2356,9 @@ local function stepHarvest()
     end
     local cap = maxFruitCap()
     local sellAt = math.min(S.sellAt or 85, cap)
-    local d = S.harvestDelay or 0
+    local spam = S.spamHarvest == true
+    local d = spam and 0 or (S.harvestDelay or 0)
+    local fired = 0
     -- fire a fresh batch of collects (the firing time lets the async collects materialize
     -- into the pack), stop if the pack is genuinely full, then sell the whole batch at once.
     for _, h in ipairs(list) do
@@ -2366,8 +2368,13 @@ local function stepHarvest()
         if S.neverSellFruit[h.name] or S.neverSellMut[h.mutation] then continue end
         if fruitCount() >= cap - 1 then break end
         pcall(function() fireFast("Garden.CollectFruit", h.plantId, h.fruitId) end)
-        Stats.harvested += 1; Stats.lastAction = "harvested " .. tostring(h.name or "fruit")
-        if d > 0 then task.wait(math.min(d, 0.03)) end
+        Stats.harvested += 1; Stats.lastAction = (spam and "spam harvested " or "harvested ") .. tostring(h.name or "fruit")
+        fired += 1
+        if spam then
+            if fired % math.max(5, tonumber(S.spamHarvestBatch) or 35) == 0 then task.wait(0.01) end
+        elseif d > 0 then
+            task.wait(math.min(d, 0.03))
+        end
         if sell and fruitCount() >= sellAt then break end
     end
     if sell and fruitCount() >= sellAt then pcall(sellAllNow) end
@@ -2405,7 +2412,7 @@ task.spawn(function()
     while not S.killed do
         if S.autoFarm or S.autoHarvest then
             pcall(stepHarvest)
-            task.wait(0.02)
+            task.wait(S.spamHarvest and 0.005 or 0.02)
         elseif S.autoSell then
             pcall(stepSell)
             task.wait(0.05)
@@ -3098,6 +3105,8 @@ secPlant:Dropdown("Seed to plant", plantOpts, "Best owned", function(v) S.plantS
 secPlant:Toggle("Auto-Plant (fill plot)", false, function(v) S.autoPlant = v end)
 secPlant:Slider("Plant spacing (studs)", 4, 2, 10, function(v) S.plantSpacing = v end)
 secPlant:Toggle("Auto-Harvest ripe fruit", false, function(v) S.autoHarvest = v end)
+secPlant:Toggle("Spam Harvest mode (large garden)", false, function(v) S.spamHarvest = v end)
+secPlant:Slider("Spam harvest batch", 35, 5, 100, function(v) S.spamHarvestBatch = math.floor(v) end)
 secPlant:Slider("Harvest pace (s/fruit · 0.02≈max)", 0.01, 0, 0.2, function(v) S.harvestDelay = v end)
 secPlant:Toggle("Auto-Sell (sell when fruit >= Sell At)", false, function(v) S.autoSell = v end)
 secPlant:Slider("Sell At fruit count", 85, 1, 200, function(v) S.sellAt = math.floor(v) end)
@@ -3237,7 +3246,7 @@ task.spawn(function()
         pcall(function() dashState:Set("State: " .. tostring(Stats.state or "IDLE") .. " | Last: " .. tostring(Stats.lastAction or "idle") .. " | Webhook: " .. webhookText) end)
         pcall(function() dashFruit:Set("Fruit: " .. tostring(fruitCount()) .. "/" .. tostring(maxFruitCap())) end)
         pcall(function() dashPlants:Set("Plants: " .. gardenScanSummary(4)) end)
-        pcall(function() dashSettings:Set("Settings: buy " .. tostring(S.autoBuy) .. " plant " .. tostring(S.autoPlant) .. " equipPet " .. tostring(S.autoEquipPets) .. " worldPet " .. tostring(S.autoBuyPets)) end)
+        pcall(function() dashSettings:Set("Settings: buy " .. tostring(S.autoBuy) .. " plant " .. tostring(S.autoPlant) .. " equipPet " .. tostring(S.autoEquipPets) .. " worldPet " .. tostring(S.autoBuyPets) .. " spamHarvest " .. tostring(S.spamHarvest)) end)
         pcall(function() dashPets:Set("Pets: equipped " .. tostring(equippedPetCount()) .. " | buy " .. selectedNames(S.buyPets) .. " | " .. tostring(Stats.petLast or "idle")) end)
         pcall(function() dashStats:Set(statText) end)
         task.wait(2)
