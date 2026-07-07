@@ -2537,21 +2537,24 @@ end)
 loopOn(function() return S.autoPetSlot end, 20, function()
     fire("Pets.RequestPurchasePetSlot")
 end)
--- Auto-Buy world pets: scan all wild pets, pick one affordable unowned target, then TP once.
--- This keeps pet effects/equip intact while preventing repeated pet-to-pet teleport spam.
+-- Auto-Buy world pets: scan all wild pets, filter by selected Pet to equip priority when set, then TP once.
+-- In the stable GUI, the pet priority dropdown doubles as the world-pet buy target filter.
 local petBuyCooldown = {}
 loopOn(function() return S.autoBuyPets end, function() return S.petBuyInterval end, function()
     local cash = getSheckles()
     local best = nil
+    local useTargets = picked(S.equipPets)
     for _, w in ipairs(wildPets()) do
-        local key = tostring(w.name or "pet") .. ":" .. tostring(w.price or 0)
+        local petName = tostring(w.name or "")
+        local targetOk = (not useTargets) or S.equipPets[petName]
+        local key = petName .. ":" .. tostring(w.price or 0)
         local fresh = os.clock() - (petBuyCooldown[key] or 0) > math.max(8, S.petBuyInterval or 5)
-        if w.owner == 0 and w.price > 0 and w.price <= S.maxPetPrice and cash >= w.price and fresh then
+        if targetOk and w.owner == 0 and w.price > 0 and w.price <= S.maxPetPrice and cash >= w.price and fresh then
             if (not best) or w.price < best.price then best = w end
         end
     end
     if not best then
-        Stats.petLast = "no valid target"
+        Stats.petLast = useTargets and ("no target from equip list") or "no valid target"
         return
     end
     local key = tostring(best.name or "pet") .. ":" .. tostring(best.price or 0)
