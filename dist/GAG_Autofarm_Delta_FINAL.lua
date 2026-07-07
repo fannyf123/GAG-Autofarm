@@ -1983,7 +1983,7 @@ local S = {
     autoWater = false, waterInterval = 8,
     autoSkill = false, skillStats = {},          -- {"BaseSpeed"=true,...}
     -- pets
-    autoEquipPets = false, equipPets = {}, autoPetSlot = false,
+    autoEquipPets = false, equipPets = {}, buyPets = {}, autoPetSlot = false,
     autoBuyPets = false, maxPetPrice = 25000, petTeleport = true, petBuyInterval = 5,
     sellPets = {}, autoSellPets = false,
     -- eggs / crates / packs
@@ -2002,7 +2002,7 @@ local S = {
 }
 local Stats = { bought = 0, planted = 0, harvested = 0, sold = 0, earned = 0,
     sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock(),
-    petLast = "idle", webhookLastOk = 0, webhookNextAt = 0, webhookLastError = "none" }
+    state = "IDLE", lastAction = "idle", petLast = "idle", webhookLastOk = 0, webhookNextAt = 0, webhookLastError = "none" }
 local WebhookStats = { bought = 0, planted = 0, harvested = 0, sold = 0, opened = 0, stolen = 0 }
 
 local _due = {}
@@ -2144,7 +2144,7 @@ local function gagApplyConfig(raw)
     if m["Auto Expand Plot"] ~= nil then S.autoExpand = m["Auto Expand Plot"] == true end
     if misc["Auto Daily Deal"] ~= nil then S.autoDaily = misc["Auto Daily Deal"] == true end
 
-    if type(pets.Buy) == "table" then S.autoBuyPets = picked(pets.Buy); local max=0; for _,v in pairs(pets.Buy) do if type(v)=="number" and v>max then max=v end end; if max>0 then S.maxPetPrice=1000000 end end
+    if type(pets.Buy) == "table" then gagSetMapFromList(S.buyPets, pets.Buy); S.autoBuyPets = picked(S.buyPets); local max=0; for _,v in pairs(pets.Buy) do if type(v)=="number" and v>max then max=v end end; if max>0 then S.maxPetPrice=1000000 end end
     if type(pets.Equip) == "table" then gagSetMapFromList(S.equipPets, pets.Equip); S.autoEquipPets = picked(S.equipPets) end
     if pets["Auto Buy Slots"] ~= nil then S.autoPetSlot = pets["Auto Buy Slots"] == true end
 
@@ -2215,7 +2215,8 @@ local function buySeedOnce(seedName)
     return false, err
 end
 local function stepBuy()
-    if not due("buy", S.buyInterval) then return end
+    if not due("buy", math.max(0.2, tonumber(S.buyInterval) or 1)) then return end
+    Stats.state = "BUY"
     if not picked(S.buySeeds) then return end
     for _, s in ipairs(CATALOG) do
         if not (S.autoFarm or S.autoBuy) then break end
@@ -2226,9 +2227,9 @@ local function stepBuy()
                 if s.price > 0 and getSheckles() < s.price then break end
                 local ok = buySeedOnce(s.name)
                 if not ok then break end
-                Stats.bought += 1; bought += 1
+                Stats.bought += 1; bought += 1; Stats.lastAction = "bought seed " .. tostring(s.name)
                 if stock ~= nil then stock -= 1 end
-                task.wait(jitter(0.18, 0.35))
+                task.wait(jitter(0.04, 0.09))
             end
         end
     end
@@ -2285,6 +2286,7 @@ local function pickPlantTool()
 end
 
 local function stepPlant()
+    Stats.state = "PLANT"
     local _, totalPlants = plantCounts()
     if (S.plantLimit or 0) > 0 and totalPlants >= S.plantLimit then return end
     local grid = plantGrid(S.plantSpacing)
@@ -2293,7 +2295,7 @@ local function stepPlant()
     local hum = humanoid(); if not hum then return end
     if heldToolByAttr("SeedTool") ~= tool then 
         pcall(function() hum:EquipTool(tool) end)
-        task.wait(0.22) 
+        task.wait(0.08) 
     end
     tool = heldToolByAttr("SeedTool"); if not tool then return end
     local seedAttr = tool:GetAttribute("SeedTool")
@@ -2309,14 +2311,14 @@ local function stepPlant()
             if not heldToolByAttr("SeedTool") then
                 local nx = pickPlantTool(); if not nx then return end
                 pcall(function() hum:EquipTool(nx) end)
-                task.wait(0.2)
+                task.wait(0.06)
                 tool = heldToolByAttr("SeedTool"); if not tool then return end
                 seedAttr = tool:GetAttribute("SeedTool")
                 if not seedAttr then return end
             end
             pcall(function() fire("Plant.PlantSeed", pos, seedAttr, tool) end)
-            Stats.planted += 1; occupied[#occupied + 1] = pos
-            task.wait(jitter(0.08, 0.16))   -- > the game's 0.05s client gate
+            Stats.planted += 1; Stats.lastAction = "planted " .. tostring(seedAttr); occupied[#occupied + 1] = pos
+            task.wait(jitter(0.025, 0.055))
         end
     end
 end
@@ -2324,6 +2326,7 @@ end
 local function maxFruitCap() return tonumber(LocalPlayer:GetAttribute("MaxFruitCapacity")) or 100 end
 local function fruitCount()  return tonumber(LocalPlayer:GetAttribute("FruitCount")) or 0 end
 local function sellAllNow()
+    Stats.state = "SELL"
     if picked(S.neverSellFruit) or picked(S.neverSellMut) then
         warn("[NeverSell] SellAll blocked because Never Sell protection is configured")
         return 0
@@ -2331,7 +2334,7 @@ local function sellAllNow()
     local ok, res = fireFast("NPCS.SellAll")
     if ok and type(res) == "table" and res.Success then
         local n = tonumber(res.SoldCount) or 0
-        Stats.sold += n; Stats.earned += tonumber(res.SellPrice) or 0
+        Stats.sold += n; Stats.earned += tonumber(res.SellPrice) or 0; Stats.lastAction = "sold " .. tostring(n) .. " fruit"
         return n
     end
     return 0
@@ -2342,6 +2345,7 @@ end
 -- never idle holding a full inventory. Firing faster than the server's rate just gets
 -- dropped (delay=0 collected LESS), so harvestDelay paces each collect.
 local function stepHarvest()
+    Stats.state = "HARVEST"
     local sell = (S.autoFarm or S.autoSell)
     local list = ripeHarvests()
     if #list == 0 then
@@ -2362,15 +2366,15 @@ local function stepHarvest()
         if S.neverSellFruit[h.name] or S.neverSellMut[h.mutation] then continue end
         if fruitCount() >= cap - 1 then break end
         pcall(function() fireFast("Garden.CollectFruit", h.plantId, h.fruitId) end)
-        Stats.harvested += 1
-        if d > 0 then task.wait(d) end
+        Stats.harvested += 1; Stats.lastAction = "harvested " .. tostring(h.name or "fruit")
+        if d > 0 then task.wait(math.min(d, 0.03)) end
         if sell and fruitCount() >= sellAt then break end
     end
     if sell and fruitCount() >= sellAt then pcall(sellAllNow) end
 end
 
 local function stepSell()       -- sell-only mode (when Auto-Harvest is off)
-    if not due("sell", S.sellInterval) then return end
+    if not due("sell", math.min(tonumber(S.sellInterval) or 15, 1)) then return end
     if fruitCount() < math.min(S.sellAt or 85, maxFruitCap()) then return end
     local n = sellAllNow()
     if n > 0 then warn("[Sold] " .. n .. " items") end
@@ -2391,7 +2395,7 @@ task.spawn(function()
         if S.autoFarm or S.autoPlant   then pcall(stepPlant) end
         if S.autoFarm or S.autoExpand  then pcall(stepExpand) end
         if S.autoFarm or S.autoDaily   then pcall(stepDaily) end
-        task.wait(0.55)
+        task.wait(0.08)
     end
 end)
 
@@ -2401,10 +2405,10 @@ task.spawn(function()
     while not S.killed do
         if S.autoFarm or S.autoHarvest then
             pcall(stepHarvest)
-            task.wait(0.05)
+            task.wait(0.02)
         elseif S.autoSell then
             pcall(stepSell)
-            task.wait(0.3)
+            task.wait(0.05)
         else
             task.wait(0.4)
         end
@@ -2543,10 +2547,11 @@ local petBuyCooldown = {}
 loopOn(function() return S.autoBuyPets end, function() return S.petBuyInterval end, function()
     local cash = getSheckles()
     local best = nil
-    local useTargets = picked(S.equipPets)
+    local targetMap = picked(S.buyPets) and S.buyPets or S.equipPets
+    local useTargets = picked(targetMap)
     for _, w in ipairs(wildPets()) do
         local petName = tostring(w.name or "")
-        local targetOk = (not useTargets) or S.equipPets[petName]
+        local targetOk = (not useTargets) or targetMap[petName]
         local key = petName .. ":" .. tostring(w.price or 0)
         local fresh = os.clock() - (petBuyCooldown[key] or 0) > math.max(8, S.petBuyInterval or 5)
         if targetOk and w.owner == 0 and w.price > 0 and w.price <= S.maxPetPrice and cash >= w.price and fresh then
@@ -2554,12 +2559,12 @@ loopOn(function() return S.autoBuyPets end, function() return S.petBuyInterval e
         end
     end
     if not best then
-        Stats.petLast = useTargets and ("no target from equip list") or "no valid target"
+        Stats.petLast = useTargets and ("no target from buy/equip list") or "no valid target"
         return
     end
     local key = tostring(best.name or "pet") .. ":" .. tostring(best.price or 0)
     petBuyCooldown[key] = os.clock()
-    Stats.petLast = string.format("target %s @ %s", tostring(best.name or "?"), fmt(best.price or 0))
+    Stats.petLast = string.format("target %s @ %s", tostring(best.name or "?"), fmt(best.price or 0)); Stats.lastAction = "pet target " .. tostring(best.name or "?"); Stats.state = "PET"
     if S.petTeleport and best.pos then
         atPosition(best.pos, function() fire("Pets.WildPetTame", best.part) end)
     else
@@ -3010,6 +3015,7 @@ local function setManualOff()
     S.autoFarm = false; S.autoBuy = false; S.autoPlant = false; S.autoHarvest = false; S.autoSell = false
     S.autoExpand = false; S.autoDaily = false; S.autoSprinkler = false; S.autoWater = false; S.autoSkill = false
     S.autoEquipPets = false; S.autoPetSlot = false; S.autoBuyPets = false; S.autoSellPets = false
+    for k in pairs(S.buyPets) do S.buyPets[k] = nil end
     S.autoEgg = false; S.autoCrate = false; S.autoPack = false; S.autoGear = false; S.autoSteal = false
     S.autoMail = false; S.autoAcceptGift = false; S.autoHop = false; S.allowServerHop = false; S.autoCodes = false; S.ultraPerformance = false
     currentPreset = "Manual"
@@ -3083,7 +3089,7 @@ secMaster:Toggle("Auto-Daily deals", false, function(v) S.autoDaily = v end)
 local secBuy = farmTab:Section("Buy seeds")
 secBuy:Dropdown("Seed to buy", SEED_NAMES, "Carrot", function(sel) pickMulti(sel, S.buySeeds) end)
 secBuy:Toggle("Auto-Buy selected", false, function(v) S.autoBuy = v end)
-secBuy:Slider("Buy interval (s)", 5, 1, 30, function(v) S.buyInterval = v end)
+secBuy:Slider("Buy interval (s)", 1, 0.2, 30, function(v) S.buyInterval = v end)
 secBuy:Slider("Max buys / seed / pass", 8, 1, 50, function(v) S.buyPerTick = v end)
 
 local secPlant = farmTab:Section("Plant / Harvest / Sell")
@@ -3228,11 +3234,11 @@ task.spawn(function()
         local webhookText = S.webhookEnabled and ("ON next " .. hms(math.max(0, (Stats.webhookNextAt or 0) - os.clock())) .. " err " .. tostring(Stats.webhookLastError or "none")) or "OFF"
         pcall(function() dashFarm:Set("Farm: " .. (farmOn and "ON" or "OFF")) end)
         pcall(function() dashCash:Set(cashText) end)
-        pcall(function() dashState:Set("Pet: " .. tostring(Stats.petLast or "idle") .. " | Webhook: " .. webhookText) end)
+        pcall(function() dashState:Set("State: " .. tostring(Stats.state or "IDLE") .. " | Last: " .. tostring(Stats.lastAction or "idle") .. " | Webhook: " .. webhookText) end)
         pcall(function() dashFruit:Set("Fruit: " .. tostring(fruitCount()) .. "/" .. tostring(maxFruitCap())) end)
         pcall(function() dashPlants:Set("Plants: " .. gardenScanSummary(4)) end)
         pcall(function() dashSettings:Set("Settings: buy " .. tostring(S.autoBuy) .. " plant " .. tostring(S.autoPlant) .. " equipPet " .. tostring(S.autoEquipPets) .. " worldPet " .. tostring(S.autoBuyPets)) end)
-        pcall(function() dashPets:Set("Pets: equipped " .. tostring(equippedPetCount()) .. " | " .. tostring(Stats.petLast or "idle")) end)
+        pcall(function() dashPets:Set("Pets: equipped " .. tostring(equippedPetCount()) .. " | buy " .. selectedNames(S.buyPets) .. " | " .. tostring(Stats.petLast or "idle")) end)
         pcall(function() dashStats:Set(statText) end)
         task.wait(2)
     end
