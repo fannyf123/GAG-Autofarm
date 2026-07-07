@@ -1352,13 +1352,15 @@ function Section:Slider(text, default, min, max, callback)
 	local precision = 0
 	local step = (max - min) / 100
 	
-	-- Auto-detect precision from default value
-	if type(default) == "number" then
-		local str = tostring(default)
-		if str:find("%.") then
-			precision = #str:split("%.") - 1
-		end
+	-- Auto-detect precision from slider range/default.
+	-- Old code used string:split("%."), which does not calculate decimal places correctly in Luau.
+	local function decimalPlaces(n)
+		if type(n) ~= "number" then return 0 end
+		local str = tostring(n)
+		local dot = string.find(str, ".", 1, true)
+		return dot and math.min(3, #str - dot) or 0
 	end
+	precision = math.max(decimalPlaces(default), decimalPlaces(min), decimalPlaces(max))
 	
 	local row, rowStroke = self:_baseRow(46)
 
@@ -1441,16 +1443,17 @@ function Section:Slider(text, default, min, max, callback)
 
 	hit.MouseButton1Down:Connect(function()
 		dragging = true
-		setValue(getValueFromMouse(), false)
+		-- Fire callback while dragging so runtime settings change immediately, not only on mouse release.
+		setValue(getValueFromMouse(), true)
 		
 		dragConnection = UserInputService.InputChanged:Connect(function(input)
-			if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-				setValue(getValueFromMouse(), false)
+			if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+				setValue(getValueFromMouse(), true)
 			end
 		end)
 		
 		upConnection = UserInputService.InputEnded:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 				if dragging then
 					dragging = false
 					setValue(getValueFromMouse(), true)
@@ -1647,6 +1650,15 @@ local function fire(path, ...)            -- fire-and-forget OR returns value (b
     local ok, res = pcall(function() return a:Fire(table.unpack(args, 1, args.n)) end)
     if not ok then return false, res end
     return true, res
+end
+local function fireFirst(paths, ...)
+    local lastErr = nil
+    for _, path in ipairs(paths) do
+        local ok, res = fire(path, ...)
+        if ok then return true, path, res end
+        lastErr = tostring(res)
+    end
+    return false, nil, lastErr
 end
 -- NO pacer: for the high-volume harvest/sell hot path (the 60/s pacer throttled it to ~0).
 local function fireFast(path, ...)
@@ -1975,11 +1987,12 @@ local S = {
     codeText = "", autoCodes = false, antiAfk = true,
     -- perf / webhook
     fpsBoost = false, ultraPerformance = false,
-    webhookEnabled = false, webhookUrl = "", webhookInterval = 300,
+    webhookEnabled = false, webhookUrl = "", webhookInterval = 300, webhookEvents = true, webhookReport = true,
     killed = false,
 }
 local Stats = { bought = 0, planted = 0, harvested = 0, sold = 0, earned = 0,
     sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock() }
+local WebhookStats = { bought = 0, planted = 0, harvested = 0, sold = 0, opened = 0, stolen = 0 }
 
 local _due = {}
 local function due(key, period)
@@ -2023,7 +2036,7 @@ end
 local GAG_PRESETS = {
     Starter = {
         Harvest = { ["Auto Harvest"] = true, ["Sell At"] = 50, ["Sell Every"] = 20 },
-        Planting = { ["Auto Plant"] = true, Layout = "compact", ["Minimum Seed"] = "" },
+        Planting = { ["Auto Plant"] = true, ["Buy Seeds"] = { "Carrot", "Strawberry", "Blueberry", "Tomato" }, Layout = "compact", ["Minimum Seed"] = "" },
         Money = { ["Keep Cash"] = 0, ["Auto Expand Plot"] = true, ["Expand If Over"] = 50000 },
         Pets = { Buy = { "Deer", "Robin" }, Equip = { "Deer" } },
         Gear = { ["Keep Cash"] = 5000, ["Place Sprinklers"] = { ["Common Sprinkler"] = 4 }, ["Buy Gear"] = { "Super Sprinkler" } },
@@ -2031,7 +2044,7 @@ local GAG_PRESETS = {
     },
     Balanced = {
         Harvest = { ["Auto Harvest"] = true, ["Sell At"] = 85, ["Sell Every"] = 40 },
-        Planting = { ["Auto Plant"] = true, Layout = "compact", ["Minimum Seed"] = "Bamboo", ["Keep Seeds"] = { ["Dragon's Breath"] = 5, ["Moon Bloom"] = 5, Gold = 5, Rainbow = 5 } },
+        Planting = { ["Auto Plant"] = true, ["Buy Seeds"] = { "Bamboo", "Corn", "Tomato", "Blueberry" }, Layout = "compact", ["Minimum Seed"] = "Bamboo", ["Keep Seeds"] = { ["Dragon's Breath"] = 5, ["Moon Bloom"] = 5, Gold = 5, Rainbow = 5 } },
         Money = { ["Keep Cash"] = 15000, ["Auto Expand Plot"] = true, ["Expand If Over"] = 1500000, ["Auto Replace Plants"] = true },
         Pets = { Buy = { "Unicorn", "GoldenDragonfly", Deer = 6 }, Equip = { "Unicorn", "GoldenDragonfly", "Deer" }, ["Auto Buy Slots"] = true },
         Gear = { ["Keep Cash"] = 15000, ["Sprinkler Coverage"] = "concentrate", ["Place Sprinklers"] = { best = 4 }, ["Best Sprinkler Up To"] = "Rare Sprinkler" },
@@ -2096,6 +2109,7 @@ local function gagApplyConfig(raw)
     local h, p, m = cfg.Harvest or {}, cfg.Planting or {}, cfg.Money or {}
     local pets, gear, mail = cfg.Pets or {}, cfg.Gear or {}, cfg.Mail or {}
     local misc, perf = cfg.Misc or {}, cfg.Performance or {}
+    local webhook = cfg.Webhook or cfg.webhook or {}
 
     if h["Auto Harvest"] ~= nil then S.autoHarvest = h["Auto Harvest"] == true; S.autoSell = S.autoHarvest end
     if h["Sell At"] ~= nil then S.sellAt = math.max(1, tonumber(h["Sell At"]) or S.sellAt) end
@@ -2133,6 +2147,17 @@ local function gagApplyConfig(raw)
     if mail["Send Every"] ~= nil then S.mailSendEvery = math.max(10, (tonumber(mail["Send Every"]) or 0) * 60); if mail["Send Every"] == 0 then S.mailSendEvery = 45 end end
     if type(mail["Send"]) == "table" then S.mailSend = gagClone(mail["Send"]) end
     if misc["Fast Travel"] ~= nil then S.stealTeleport = misc["Fast Travel"] == true; S.petTeleport = misc["Fast Travel"] == true end
+    if type(webhook) == "table" then
+        if type(webhook.Url) == "string" then S.webhookUrl = webhook.Url end
+        if type(webhook.URL) == "string" then S.webhookUrl = webhook.URL end
+        if type(webhook.url) == "string" then S.webhookUrl = webhook.url end
+        if webhook.Enabled ~= nil then S.webhookEnabled = webhook.Enabled == true end
+        if webhook.enabled ~= nil then S.webhookEnabled = webhook.enabled == true end
+        if webhook.Events ~= nil then S.webhookEvents = webhook.Events == true end
+        if webhook.Report ~= nil then S.webhookReport = webhook.Report == true end
+        if webhook.Interval ~= nil then S.webhookInterval = math.max(30, (tonumber(webhook.Interval) or 5) * 60) end
+        if webhook["Interval Min"] ~= nil then S.webhookInterval = math.max(30, (tonumber(webhook["Interval Min"]) or 5) * 60) end
+    end
     gagApplyPerformance(perf)
 
     if presetName then warn("[GAGConfig] Applied preset: " .. tostring(presetName)) else warn("[GAGConfig] Applied custom config") end
@@ -2148,6 +2173,18 @@ end
 -- // ============================================================ \\ --
 -- //                     CORE FARM (master loop)                 \\ --
 -- // ============================================================ \\ --
+local SEED_BUY_ACTIONS = { "SeedShop.PurchaseSeed", "SeedShop.BuySeed", "SeedShop.RequestPurchase", "SeedShop.Purchase", "Shop.PurchaseSeed", "Shop.BuySeed" }
+local _seedBuyWarnAt = {}
+local function buySeedOnce(seedName)
+    local ok, used, err = fireFirst(SEED_BUY_ACTIONS, seedName)
+    if ok then return true, used end
+    local now = os.clock()
+    if now - (_seedBuyWarnAt[seedName] or 0) > 20 then
+        _seedBuyWarnAt[seedName] = now
+        warn("[Seeds] Buy failed for " .. tostring(seedName) .. ": " .. tostring(err))
+    end
+    return false, err
+end
 local function stepBuy()
     if not due("buy", S.buyInterval) then return end
     if not picked(S.buySeeds) then return end
@@ -2158,11 +2195,11 @@ local function stepBuy()
             while bought < S.buyPerTick do
                 if stock ~= nil and stock <= 0 then break end
                 if s.price > 0 and getSheckles() < s.price then break end
-                local ok = fire("SeedShop.PurchaseSeed", s.name)
+                local ok = buySeedOnce(s.name)
                 if not ok then break end
                 Stats.bought += 1; bought += 1
                 if stock ~= nil then stock -= 1 end
-                task.wait(jitter(0.1, 0.22))
+                task.wait(jitter(0.18, 0.35))
             end
         end
     end
@@ -2765,8 +2802,9 @@ function applyFpsBoost(on)
 end
 
 -- // ============================================================ \\ --
--- //                    WEBHOOK REPORTING                        \\ --
--- // ============================================================ \\ --
+-- // ============================================================ \ --
+-- //                    WEBHOOK REPORTING                        \ --
+-- // ============================================================ \ --
 local httpRequest = (syn and syn.request) or http_request or request or (http and http.request)
 local function hms(sec)
     sec = math.floor(sec); local h = sec//3600; local m = (sec%3600)//60
@@ -2774,11 +2812,26 @@ local function hms(sec)
     if m > 0 then return string.format("%dm %ds", m, sec%60) end
     return sec .. "s"
 end
+local function webhookReady(silent)
+    if not httpRequest then if not silent then warn("[Webhook] Executor exposes no HTTP request fn") end; return false end
+    if not string.match(S.webhookUrl or "", "^https?://") then if not silent then warn("[Webhook] Set a valid webhook URL") end; return false end
+    return true
+end
+local function webhookPost(payload, silent)
+    if not webhookReady(silent) then return false end
+    local ok, res = pcall(function()
+        return httpRequest({ Url = S.webhookUrl, Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" }, Body = HttpService:JSONEncode(payload) })
+    end)
+    local code = ok and res and (res.StatusCode or res.Status or res.status_code)
+    local good = ok and (code == nil or code == 200 or code == 204)
+    if not good and not silent then warn("[Webhook] Failed (" .. tostring(code) .. ")") end
+    return good, code
+end
 local function sendWebhook(isTest)
-    if not httpRequest then warn("[Webhook] Executor exposes no HTTP request fn"); return false end
-    if not string.match(S.webhookUrl or "", "^https?://") then warn("[Webhook] Set a valid webhook URL"); return false end
+    if not (isTest or S.webhookReport) then return false end
     local payload = { username = "Grow a Garden 2", embeds = { {
-        title = "🌱 Farm Report — " .. LocalPlayer.Name, color = 5763719,
+        title = (isTest and "🧪 Test Report — " or "🌱 Farm Report — ") .. LocalPlayer.Name, color = isTest and 3447003 or 5763719,
         fields = {
             { name = "💰 Sheckles", value = fmt(getSheckles()), inline = true },
             { name = "🪙 Tokens",   value = fmt(getTokens()),   inline = true },
@@ -2787,22 +2840,65 @@ local function sendWebhook(isTest)
                 Stats.bought, Stats.planted, Stats.harvested, Stats.sold, fmt(Stats.earned)), inline = false },
             { name = "✨ Extras",   value = string.format("sprinklers %d · watered %d · tamed %d · opened %d · stolen %d",
                 Stats.sprinklers, Stats.watered, Stats.tamed, Stats.opened, Stats.stolen), inline = false },
+            { name = "⚙️ Runtime", value = string.format("preset %s · farm %s · fruit %s/%s", tostring(currentPreset), tostring(S.autoFarm or S.autoBuy or S.autoPlant or S.autoHarvest or S.autoSell), tostring(fruitCount()), tostring(maxFruitCap())), inline = false },
             { name = "⏱️ Uptime",   value = hms(os.clock() - Stats.startAt), inline = true },
         }, footer = { text = "WalkyHub · GAG2" },
     } } }
-    local ok, res = pcall(function()
-        return httpRequest({ Url = S.webhookUrl, Method = "POST",
-            Headers = { ["Content-Type"] = "application/json" }, Body = HttpService:JSONEncode(payload) })
-    end)
-    local code = ok and res and (res.StatusCode or res.Status or res.status_code)
-    local good = ok and (code == nil or code == 200 or code == 204)
+    local good, code = webhookPost(payload, false)
     if isTest then warn("[Webhook] " .. (good and "Test sent ✅" or ("Failed (" .. tostring(code) .. ")"))) end
     return good
 end
-loopOn(function() return S.webhookEnabled end, function() return S.webhookInterval end, function() sendWebhook(false) end)
+local _lastWebhookEventAt = {}
+local function sendWebhookEvent(kind, title, description, color)
+    if not (S.webhookEnabled and S.webhookEvents) then return false end
+    if not webhookReady(true) then return false end
+    local now = os.clock()
+    if now - (_lastWebhookEventAt[kind] or 0) < 8 then return false end
+    _lastWebhookEventAt[kind] = now
+    return webhookPost({ username = "Grow a Garden 2", embeds = { {
+        title = title, description = description, color = color or 5763719,
+        fields = {
+            { name = "Player", value = LocalPlayer.Name, inline = true },
+            { name = "Preset", value = tostring(currentPreset), inline = true },
+            { name = "Uptime", value = hms(os.clock() - Stats.startAt), inline = true },
+        }, footer = { text = "WalkyHub · live event" },
+    } } }, true)
+end
+loopOn(function() return S.webhookEnabled and S.webhookReport end, function() return S.webhookInterval end, function() sendWebhook(false) end)
 
--- // ============================================================ \\ --
--- //                            UI                               \\ --
+-- lightweight live webhook event log (delta-based, low spam)
+task.spawn(function()
+    while not S.killed do
+        if S.webhookEnabled and S.webhookEvents and webhookReady(true) then
+            if Stats.bought > WebhookStats.bought then
+                sendWebhookEvent("bought", "🛒 Seeds bought", "+" .. tostring(Stats.bought - WebhookStats.bought) .. " seeds bought (total " .. tostring(Stats.bought) .. ")", 5763719)
+                WebhookStats.bought = Stats.bought
+            end
+            if Stats.planted > WebhookStats.planted then
+                sendWebhookEvent("planted", "🌱 Seeds planted", "+" .. tostring(Stats.planted - WebhookStats.planted) .. " planted (total " .. tostring(Stats.planted) .. ")", 5763719)
+                WebhookStats.planted = Stats.planted
+            end
+            if Stats.harvested > WebhookStats.harvested then
+                sendWebhookEvent("harvested", "✅ Fruit harvested", "+" .. tostring(Stats.harvested - WebhookStats.harvested) .. " harvested (total " .. tostring(Stats.harvested) .. ")", 3066993)
+                WebhookStats.harvested = Stats.harvested
+            end
+            if Stats.sold > WebhookStats.sold then
+                sendWebhookEvent("sold", "💰 Fruit sold", "+" .. tostring(Stats.sold - WebhookStats.sold) .. " sold · earned +" .. fmt(Stats.earned), 16766720)
+                WebhookStats.sold = Stats.sold
+            end
+            if Stats.opened > WebhookStats.opened then
+                sendWebhookEvent("opened", "📦 Items opened", "+" .. tostring(Stats.opened - WebhookStats.opened) .. " opened (total " .. tostring(Stats.opened) .. ")", 10181046)
+                WebhookStats.opened = Stats.opened
+            end
+            if Stats.stolen > WebhookStats.stolen then
+                sendWebhookEvent("stolen", "🌙 Fruit stolen", "+" .. tostring(Stats.stolen - WebhookStats.stolen) .. " stolen (total " .. tostring(Stats.stolen) .. ")", 15158332)
+                WebhookStats.stolen = Stats.stolen
+            end
+        end
+        task.wait(10)
+    end
+end)
+
 -- // ============================================================ \\ --
 -- Create UI with KrassUI
 local ui = KrassUI.new({
@@ -2998,8 +3094,10 @@ secPerf:Button("Unload hub (stops everything)", function() S.killed = true; pcal
 
 local secWeb = settingsTab:Section("Discord Webhook")
 secWeb:Textbox("Webhook URL", "https://discord.com/api/webhooks/...", function(t) S.webhookUrl = t or "" end)
-secWeb:Toggle("Enable reports", false, function(v) S.webhookEnabled = v end)
-secWeb:Slider("Report interval (min)", 5, 1, 60, function(v) S.webhookInterval = v * 60 end)
+secWeb:Toggle("Enable webhook", false, function(v) S.webhookEnabled = v end)
+secWeb:Toggle("Send live action logs", true, function(v) S.webhookEvents = v end)
+secWeb:Toggle("Send interval reports", true, function(v) S.webhookReport = v end)
+secWeb:Slider("Report interval (min)", 5, 1, 60, function(v) S.webhookInterval = math.max(30, v * 60) end)
 secWeb:Button("Send test report", function() task.spawn(function() sendWebhook(true) end) end)
 
 local secInfo = settingsTab:Section("Info")
