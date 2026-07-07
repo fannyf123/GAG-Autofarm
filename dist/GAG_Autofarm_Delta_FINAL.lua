@@ -1988,7 +1988,7 @@ local S = {
     -- buy / plant / harvest / sell
     autoBuy = false, buySeeds = {}, buyInterval = 5, buyPerTick = 8,
     autoPlant = false, plantSpacing = 4, plantSeed = "Best owned", plantPlan = {}, plantLimit = 0, keepSeeds = {},
-    autoHarvest = false, harvestInterval = 2, harvestDelay = 0.01, spamHarvest = false, turboFarm = false, spamHarvestBatch = 35, onlyHarvest = {}, dontHarvest = {}, neverSellFruit = {}, neverSellMut = {},
+    autoHarvest = false, harvestInterval = 2, harvestDelay = 0, spamHarvest = true, turboFarm = true, spamHarvestBatch = 50, onlyHarvest = {}, dontHarvest = {}, neverSellFruit = {}, neverSellMut = {},
     autoSell = false, sellAt = 85, sellInterval = 15,
     autoExpand = false, autoPot = false, autoDaily = false,
     -- boosts
@@ -3204,8 +3204,8 @@ secMaster:Toggle("Auto-Daily deals", false, function(v) S.autoDaily = v end)
 local secBuy = farmTab:Section("Buy seeds")
 secBuy:Dropdown("Seed to buy", SEED_NAMES, "Carrot", function(sel) pickMulti(sel, S.buySeeds) end)
 secBuy:Toggle("Auto-Buy selected", false, function(v) S.autoBuy = v end)
-secBuy:Slider("Buy interval (s)", 1, 0.2, 30, function(v) S.buyInterval = v end)
-secBuy:Slider("Max buys / seed / pass", 8, 1, 50, function(v) S.buyPerTick = v end)
+secBuy:Slider("Buy interval (s)", 0.2, 0.2, 30, function(v) S.buyInterval = v end)
+secBuy:Slider("Max buys / seed / pass", 50, 1, 50, function(v) S.buyPerTick = v end)
 
 local secPlant = farmTab:Section("Plant / Harvest / Sell")
 local plantOpts = { "Best owned" }; for _, n in ipairs(SEED_NAMES) do plantOpts[#plantOpts + 1] = n end
@@ -3213,10 +3213,10 @@ secPlant:Dropdown("Seed to plant", plantOpts, "Best owned", function(v) S.plantS
 secPlant:Toggle("Auto-Plant (fill plot)", false, function(v) S.autoPlant = v end)
 secPlant:Slider("Plant spacing (studs)", 4, 2, 10, function(v) S.plantSpacing = v end)
 secPlant:Toggle("Auto-Harvest ripe fruit", false, function(v) S.autoHarvest = v end)
-secPlant:Toggle("Spam Harvest mode (large garden)", false, function(v) S.spamHarvest = v end)
-secPlant:Toggle("Turbo Condition Spam (parallel)", false, function(v) S.turboFarm = v; if v then S.spamHarvest = true end end)
-secPlant:Slider("Spam harvest batch", 35, 5, 100, function(v) S.spamHarvestBatch = math.floor(v) end)
-secPlant:Slider("Harvest pace (s/fruit · 0.02≈max)", 0.01, 0, 0.2, function(v) S.harvestDelay = v end)
+secPlant:Toggle("Spam Harvest mode (large garden)", true, function(v) S.spamHarvest = v end)
+secPlant:Toggle("Turbo Condition Spam (parallel)", true, function(v) S.turboFarm = v; if v then S.spamHarvest = true end end)
+secPlant:Slider("Spam harvest batch", 50, 5, 100, function(v) S.spamHarvestBatch = math.floor(v) end)
+secPlant:Slider("Harvest pace (s/fruit · 0.02≈max)", 0, 0, 0.2, function(v) S.harvestDelay = v end)
 secPlant:Toggle("Auto-Sell (sell when fruit >= Sell At)", false, function(v) S.autoSell = v end)
 secPlant:Slider("Sell At fruit count", 85, 1, 200, function(v) S.sellAt = math.floor(v) end)
 secPlant:Slider("Sell interval (s, sell-only mode)", 15, 3, 120, function(v) S.sellInterval = v end)
