@@ -2356,13 +2356,43 @@ local function equippedPetCount()
     end
     return 0
 end
-loopOn(function() return S.autoEquipPets end, 12, function()
+local function petToolsByName(name)
+    local out = {}
+    for _, t in ipairs(toolsByAttr("PetId")) do
+        local nm = t:GetAttribute("PetName") or t.Name
+        if (not name) or nm == name or t.Name == name then out[#out + 1] = t end
+    end
+    return out
+end
+local function doubleClickPetTool(tool)
+    local hum = humanoid()
+    if not (hum and tool) then return false end
+    pcall(function() hum:EquipTool(tool) end)
+    task.wait(0.18)
+    pcall(function() tool:Activate() end)
+    task.wait(0.12)
+    pcall(function() tool:Activate() end)
+    task.wait(0.2)
+    return true
+end
+local function equipPetByName(name)
+    -- Fast path: game's networking action, if it works for current runtime.
+    fire("Pets.RequestEquipByName", name)
+    task.wait(0.12)
+    -- Fallback for runtimes where pet equip is client-tool driven: equip + double-click/activate pet tool.
+    for _, tool in ipairs(petToolsByName(name)) do
+        if doubleClickPetTool(tool) then return true end
+    end
+    return false
+end
+loopOn(function() return S.autoEquipPets end, 8, function()
     local cap = tonumber(LocalPlayer:GetAttribute("MaxEquippedPets")) or 3
     local have = equippedPetCount()
     if have >= cap then return end
     for _, nm in ipairs(ownedPetNames()) do
         if not S.autoEquipPets or have >= cap then break end
-        fire("Pets.RequestEquipByName", nm); have += 1; task.wait(0.3)
+        if equipPetByName(nm) then have += 1 end
+        task.wait(0.35)
     end
 end)
 loopOn(function() return S.autoPetSlot end, 20, function()
@@ -2390,6 +2420,9 @@ loopOn(function() return S.autoSellPets end, 4, function()
         if not S.autoSellPets then break end
         local nm = t:GetAttribute("PetName") or t.Name
         if S.sellPets[nm] then
+            -- Never sell a pet that was already held/equipped before this sell pass.
+            local wasHeld = t.Parent == LocalPlayer.Character
+            if wasHeld then task.wait(0.2); continue end
             local hum = humanoid()
             if hum then pcall(function() hum:EquipTool(t) end); task.wait(0.25) end
             fire("NPCS.SellPet", t:GetAttribute("PetId")); task.wait(0.3)
