@@ -2718,6 +2718,22 @@ end)
 secCode:Toggle("Auto-redeem code list", false, function(v) S.autoCodes = v end)
 
 -- ---- SETTINGS ----
+local secPreset = settingsTab:Section("Preset Farm")
+secPreset:Label("Default Manual: pilih preset kalau mau auto-set farm")
+secPreset:Dropdown("Select preset", { "Manual", "Starter", "Balanced", "Rich", "AltToMain", "LowPC" }, "Manual", function(v)
+    if v == "Manual" then
+        S.autoFarm = false; S.autoBuy = false; S.autoPlant = false; S.autoHarvest = false; S.autoSell = false
+        S.autoExpand = false; S.autoDaily = false; S.autoSprinkler = false; S.autoWater = false; S.autoSkill = false
+        S.autoEquipPets = false; S.autoPetSlot = false; S.autoBuyPets = false; S.autoSellPets = false
+        S.autoEgg = false; S.autoCrate = false; S.autoPack = false; S.autoGear = false; S.autoSteal = false
+        S.autoMail = false; S.autoAcceptGift = false; S.autoHop = false; S.allowServerHop = false; S.autoCodes = false
+        warn("[GAGConfig] Manual preset selected: all automation OFF")
+        return
+    end
+    gagApplyConfig({ Preset = v })
+    warn("[GAGConfig] GUI preset selected: " .. tostring(v))
+end)
+
 local secPerf = settingsTab:Section("Performance & Interface")
 secPerf:Toggle("FPS Boost (low graphics)", false, function(v) S.fpsBoost = v; applyFpsBoost(v) end)
 secPerf:Button("Unload hub (stops everything)", function() S.killed = true; pcall(function() ui:Destroy() end) end)
