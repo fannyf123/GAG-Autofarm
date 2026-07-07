@@ -1959,6 +1959,7 @@ local function stepShovelForPlanting(seedName)
         if not protected then
             if shovelPlantModel(m) then
                 removed += 1
+                plantCapBlockedUntil = 0
                 Stats.lastAction = "shoveled " .. tostring(name or "plant")
                 task.wait(0.12)
             end
@@ -2373,8 +2374,12 @@ local function seedAllowedByKeep(seedName)
     return seedToolCount(seedName) > keep
 end
 local plantBlockedUntil = {}
+local plantCapBlockedUntil = 0
 local function seedPlantBlocked(seedName)
     return seedName and (plantBlockedUntil[seedName] or 0) > os.clock()
+end
+local function plantCapBlocked()
+    return (plantCapBlockedUntil or 0) > os.clock()
 end
 
 local function plannedSeedTarget()
@@ -2407,6 +2412,9 @@ local function pickPlantTool()
 end
 
 local function canPlantNow()
+    if plantCapBlocked() then
+        return S.autoReplacePlants == true and countTargetSeedTools(targetPlantMap(nil)) > 0
+    end
     local _, totalPlants = plantCounts()
     if (S.plantLimit or 0) > 0 and totalPlants >= S.plantLimit and not S.autoReplacePlants then return false end
     local tool = pickPlantTool(); if not tool then return false end
@@ -2416,6 +2424,11 @@ end
 
 local function stepPlant()
     Stats.state = "PLANT"
+    if plantCapBlocked() then
+        Stats.lastAction = "plant cap reached"
+        if S.autoReplacePlants then stepShovelForPlanting(nil) end
+        return
+    end
     local _, totalPlants = plantCounts()
     if (S.plantLimit or 0) > 0 and totalPlants >= S.plantLimit and not S.autoReplacePlants then return end
     local tool = pickPlantTool(); if not tool then return end
@@ -2445,8 +2458,9 @@ local function stepPlant()
             local ok, res = fire("Plant.PlantSeed", pos, seedAttr, tool)
             local failed = (not ok) or (type(res) == "table" and (res.Success == false or res.success == false or res.Error or res.error))
             if failed then
-                plantBlockedUntil[seedAttr] = os.clock() + 6
-                Stats.lastAction = "plant blocked " .. tostring(seedAttr)
+                plantBlockedUntil[seedAttr] = os.clock() + 10
+                plantCapBlockedUntil = os.clock() + 20
+                Stats.lastAction = "plant cap/full blocked " .. tostring(seedAttr)
                 break
             end
             Stats.planted += 1; Stats.lastAction = "planted " .. tostring(seedAttr)
@@ -3502,7 +3516,8 @@ task.spawn(function()
         local webhookText = S.webhookEnabled and ("ON next " .. hms(math.max(0, (Stats.webhookNextAt or 0) - os.clock())) .. " err " .. tostring(Stats.webhookLastError or "none")) or "OFF"
         pcall(function() dashFarm:Set("Farm: " .. (farmOn and "ON" or "OFF")) end)
         pcall(function() dashCash:Set(cashText) end)
-        pcall(function() dashState:Set("State: " .. tostring(Stats.state or "IDLE") .. " | Last: " .. tostring(Stats.lastAction or "idle") .. " | Webhook: " .. webhookText) end)
+        local capText = plantCapBlocked() and (" | PlantCap: " .. hms(math.max(0, plantCapBlockedUntil - os.clock()))) or ""
+        pcall(function() dashState:Set("State: " .. tostring(Stats.state or "IDLE") .. " | Last: " .. tostring(Stats.lastAction or "idle") .. capText .. " | Webhook: " .. webhookText) end)
         pcall(function() dashFruit:Set("Fruit: " .. tostring(fruitCount()) .. "/" .. tostring(maxFruitCap())) end)
         pcall(function() dashPlants:Set("Plants: " .. gardenScanSummary(4)) end)
         pcall(function() dashSettings:Set("Settings: buy " .. tostring(S.autoBuy) .. " plant " .. tostring(S.autoPlant) .. " equipPet " .. tostring(S.autoEquipPets) .. " worldPet " .. tostring(S.autoBuyPets) .. " spamHarvest " .. tostring(S.spamHarvest) .. " turbo " .. tostring(S.turboFarm) .. " shovel " .. tostring(S.autoReplacePlants)) end)
