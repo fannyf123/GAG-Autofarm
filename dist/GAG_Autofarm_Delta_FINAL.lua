@@ -1786,6 +1786,8 @@ local function normalizeSeedName(raw)
     return nil
 end
 local GEAR_NAMES = gearCatalog()
+local SPRINKLER_GEAR_NAMES = {}
+for _, n in ipairs(GEAR_NAMES) do if string.find(string.lower(n), "sprinkler", 1, true) then SPRINKLER_GEAR_NAMES[#SPRINKLER_GEAR_NAMES + 1] = n end end
 
 local function stockOf(shop, name)
     local ok, items = pcall(function() return ReplicatedStorage.StockValues[shop].Items end)
@@ -2073,7 +2075,7 @@ local S = {
     autoSell = false, sellAt = 85, sellInterval = 15,
     autoExpand = false, autoPot = false, autoDaily = false, autoReplacePlants = false, shovelPerCycle = 8,
     -- boosts
-    autoSprinkler = false, sprinklerInterval = 30,
+    autoSprinkler = false, sprinklerInterval = 30, sprinklerTarget = 4, bestSprinklerUpTo = "",
     autoWater = false, waterInterval = 8,
     autoSkill = false, skillStats = {},          -- {"BaseSpeed"=true,...}
     -- pets
@@ -2246,7 +2248,13 @@ local function gagApplyConfig(raw)
 
     if type(gear["Buy Gear"]) == "table" then gagSetMapFromList(S.gearBuy, gear["Buy Gear"]); S.autoGear = picked(S.gearBuy) end
     if type(gear["Keep Gear"]) == "table" then gagSetMapFromList(S.gearBuy, gear["Keep Gear"]); S.autoGear = picked(S.gearBuy) end
-    if type(gear["Place Sprinklers"]) == "table" then S.autoSprinkler = picked(gear["Place Sprinklers"]) end
+    if type(gear["Place Sprinklers"]) == "table" then
+        S.autoSprinkler = picked(gear["Place Sprinklers"])
+        local target = 0
+        for _, v in pairs(gear["Place Sprinklers"]) do if type(v) == "number" and v > target then target = v end end
+        if target > 0 then S.sprinklerTarget = target end
+    end
+    if type(gear["Best Sprinkler Up To"]) == "string" then S.bestSprinklerUpTo = gear["Best Sprinkler Up To"] end
 
     if cfg["Event Seeds"] and cfg["Event Seeds"]["Auto Claim"] ~= nil then S.autoPack = cfg["Event Seeds"]["Auto Claim"] == true end
     if mail["Auto Claim"] ~= nil then S.autoMail = mail["Auto Claim"] == true end
@@ -2364,11 +2372,16 @@ local function seedAllowedByKeep(seedName)
     local keep = tonumber(S.keepSeeds and S.keepSeeds[seedName]) or 0
     return seedToolCount(seedName) > keep
 end
+local plantBlockedUntil = {}
+local function seedPlantBlocked(seedName)
+    return seedName and (plantBlockedUntil[seedName] or 0) > os.clock()
+end
+
 local function plannedSeedTarget()
     if type(S.plantPlan) ~= "table" or not picked(S.plantPlan) then return nil end
     local counts = plantCounts()
     for name, target in pairs(S.plantPlan) do
-        if (counts[name] or 0) < (tonumber(target) or 0) and seedAllowedByKeep(name) then return name end
+        if (counts[name] or 0) < (tonumber(target) or 0) and seedAllowedByKeep(name) and not seedPlantBlocked(name) then return name end
     end
     return nil
 end
@@ -2376,11 +2389,11 @@ local function pickPlantTool()
     local planned = plannedSeedTarget()
     if planned then
         local t = toolsByAttr("SeedTool", planned)[1]
-        if t and seedAllowedByKeep(planned) then return t end
+        if t and seedAllowedByKeep(planned) and not seedPlantBlocked(planned) then return t end
     end
     if S.plantSeed ~= "Best owned" and S.plantSeed ~= "" then
         local t = toolsByAttr("SeedTool", S.plantSeed)[1]
-        if t and seedAllowedByKeep(S.plantSeed) then return t end
+        if t and seedAllowedByKeep(S.plantSeed) and not seedPlantBlocked(S.plantSeed) then return t end
     end
     -- best owned = rarest/most expensive seed we hold
     local best, bestPrice
@@ -2388,7 +2401,7 @@ local function pickPlantTool()
         local nm = t:GetAttribute("SeedTool")
         local price = 0
         for _, s in ipairs(CATALOG) do if s.name == nm then price = s.price; break end end
-        if seedAllowedByKeep(nm) and (not bestPrice or price > bestPrice) then best, bestPrice = t, price end
+        if seedAllowedByKeep(nm) and not seedPlantBlocked(nm) and (not bestPrice or price > bestPrice) then best, bestPrice = t, price end
     end
     return best or toolsByAttr("SeedTool")[1]
 end
@@ -2429,7 +2442,13 @@ local function stepPlant()
                 seedAttr = tool:GetAttribute("SeedTool")
                 if not seedAttr then return end
             end
-            pcall(function() fire("Plant.PlantSeed", pos, seedAttr, tool) end)
+            local ok, res = fire("Plant.PlantSeed", pos, seedAttr, tool)
+            local failed = (not ok) or (type(res) == "table" and (res.Success == false or res.success == false or res.Error or res.error))
+            if failed then
+                plantBlockedUntil[seedAttr] = os.clock() + 6
+                Stats.lastAction = "plant blocked " .. tostring(seedAttr)
+                break
+            end
             Stats.planted += 1; Stats.lastAction = "planted " .. tostring(seedAttr)
             task.wait(jitter(0.025, 0.055))
     end
@@ -2596,26 +2615,69 @@ task.spawn(function()
     end
 end)
 
+local function sprinklerScore(name)
+    local n = string.lower(tostring(name or ""))
+    local score = 0
+    if string.find(n, "common", 1, true) then score = 1 end
+    if string.find(n, "advanced", 1, true) or string.find(n, "uncommon", 1, true) then score = 2 end
+    if string.find(n, "rare", 1, true) then score = 3 end
+    if string.find(n, "legend", 1, true) then score = 4 end
+    if string.find(n, "myth", 1, true) or string.find(n, "god", 1, true) or string.find(n, "master", 1, true) then score = 5 end
+    if string.find(n, "sprinkler", 1, true) and score == 0 then score = 1 end
+    return score
+end
+local function sprinklerCapScore()
+    return S.bestSprinklerUpTo ~= "" and sprinklerScore(S.bestSprinklerUpTo) or 99
+end
+local function bestSprinklerName()
+    local cap, best, bestScore = sprinklerCapScore(), nil, 0
+    for _, name in ipairs(GEAR_NAMES) do
+        local score = sprinklerScore(name)
+        if score > 0 and score <= cap and score > bestScore then best, bestScore = name, score end
+    end
+    return best
+end
+local function sprinklerToolsSorted()
+    local tools = toolsByAttr("Sprinkler")
+    table.sort(tools, function(a, b) return sprinklerScore(a:GetAttribute("Sprinkler") or a.Name) > sprinklerScore(b:GetAttribute("Sprinkler") or b.Name) end)
+    return tools
+end
+local function existingSprinklerPositions()
+    local out, plot = {}, myPlot()
+    if not plot then return out end
+    for _, obj in ipairs(plot:GetDescendants()) do
+        local isSpr = obj:GetAttribute("Sprinkler") ~= nil or string.find(string.lower(obj.Name), "sprinkler", 1, true)
+        if isSpr then
+            if obj:IsA("BasePart") then out[#out + 1] = obj.Position
+            elseif obj:IsA("Model") then local ok, pos = pcall(function() return obj:GetPivot().Position end); if ok then out[#out + 1] = pos end end
+        end
+    end
+    return out
+end
+
 -- // ============================================================ \\ --
 -- //                       BOOSTS (passive)                      \\ --
 -- // ============================================================ \\ --
--- Auto-Sprinkler: place every owned sprinkler tool, spread across the plot
+-- Auto-Sprinkler: place best owned sprinklers until target count, spread across the plot
 loopOn(function() return S.autoSprinkler end, function() return S.sprinklerInterval end, function()
     local pid = myPlotId(); if not pid then return end
-    local placed = existingPlantPositions()  -- avoid clustering
-    for _, t in ipairs(toolsByAttr("Sprinkler")) do
-        if not S.autoSprinkler then break end
+    local placed = existingSprinklerPositions()
+    if #placed >= (S.sprinklerTarget or 4) then return end
+    for _, plantPos in ipairs(existingPlantPositions()) do placed[#placed + 1] = plantPos end
+    for _, t in ipairs(sprinklerToolsSorted()) do
+        if not S.autoSprinkler or #existingSprinklerPositions() >= (S.sprinklerTarget or 4) then break end
         local hum = humanoid(); if not hum then break end
         pcall(function() hum:EquipTool(t) end)
-        task.wait(0.22)
+        task.wait(0.12)
         t = heldToolByAttr("Sprinkler"); if not t then break end
         local grid = plantGrid(8)
         for _, pos in ipairs(grid) do
             local far = true
             for _, op in ipairs(placed) do if (pos - op).Magnitude < 12 then far = false; break end end
             if far then
-                fire("Place.PlaceSprinkler", pos, t:GetAttribute("Sprinkler"), t, pid)
-                Stats.sprinklers += 1; placed[#placed + 1] = pos; task.wait(0.3)
+                local ok = fire("Place.PlaceSprinkler", pos, t:GetAttribute("Sprinkler"), t, pid)
+                if ok then Stats.sprinklers += 1; Stats.lastAction = "placed sprinkler" end
+                placed[#placed + 1] = pos; task.wait(0.18)
                 break
             end
         end
@@ -2790,13 +2852,18 @@ loopOn(function() return S.autoPack  end, function() return S.openInterval end, 
 -- // ============================================================ \\ --
 -- //                      SHOP (gear)                            \\ --
 -- // ============================================================ \\ --
-loopOn(function() return S.autoGear end, function() return S.gearInterval end, function()
-    if not picked(S.gearBuy) then return end
-    for name in pairs(S.gearBuy) do
-        if not S.autoGear then break end
+loopOn(function() return S.autoGear or (S.autoSprinkler and (S.sprinklerTarget or 0) > 0) end, function() return S.gearInterval end, function()
+    local targets = {}
+    for name in pairs(S.gearBuy) do targets[name] = true end
+    local bestSpr = bestSprinklerName()
+    if S.autoSprinkler and bestSpr and #sprinklerToolsSorted() < (S.sprinklerTarget or 4) then targets[bestSpr] = true end
+    for name in pairs(targets) do
+        if not (S.autoGear or S.autoSprinkler) then break end
         local stock = stockOf("GearShop", name)
         if stock == nil or stock > 0 then
-            fire("GearShop.PurchaseGear", name); task.wait(jitter(0.2, 0.4))
+            local ok = fire("GearShop.PurchaseGear", name)
+            if ok then Stats.lastAction = "bought gear " .. tostring(name) end
+            task.wait(jitter(0.15, 0.3))
         end
     end
 end)
@@ -3306,6 +3373,8 @@ secPlant:Slider("Shovel max / cycle", 8, 1, 30, function(v) S.shovelPerCycle = m
 -- ---- BOOSTS ----
 local secSpr = boostsTab:Section("Sprinklers & Water")
 secSpr:Toggle("Auto-place Sprinklers", false, function(v) S.autoSprinkler = v end)
+secSpr:Slider("Sprinkler target count", 4, 1, 12, function(v) S.sprinklerTarget = math.floor(v) end)
+secSpr:Dropdown("Best sprinkler up to", SPRINKLER_GEAR_NAMES, "", function(v) S.bestSprinklerUpTo = tostring(v or "") end)
 secSpr:Slider("Sprinkler interval (s)", 30, 10, 120, function(v) S.sprinklerInterval = v end)
 secSpr:Toggle("Auto-Watering Can", false, function(v) S.autoWater = v end)
 secSpr:Slider("Water interval (s)", 8, 2, 60, function(v) S.waterInterval = v end)
