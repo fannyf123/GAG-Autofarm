@@ -3023,7 +3023,7 @@ local function sendWebhook(isTest)
             { name = "✨ Extras",   value = string.format("sprinklers %d · watered %d · tamed %d · opened %d · stolen %d",
                 Stats.sprinklers, Stats.watered, Stats.tamed, Stats.opened, Stats.stolen), inline = false },
             { name = "⚙️ Runtime", value = string.format("preset %s · farm %s · fruit %s/%s", tostring(currentPreset), tostring(S.autoFarm or S.autoBuy or S.autoPlant or S.autoHarvest or S.autoSell), tostring(fruitCount()), tostring(maxFruitCap())), inline = false },
-            { name = "Settings", value = string.format("seedBuy %s · plant %s · equipPets %s · worldPets %s · petTP %s · sellAt %s", tostring(S.autoBuy), tostring(S.autoPlant), tostring(S.autoEquipPets), tostring(S.autoBuyPets), tostring(S.petTeleport), tostring(S.sellAt)), inline = false },
+            { name = "Settings", value = string.format("seedBuy %s · plant %s · harvest %s · spamHarvest %s · turbo %s · equipPets %s · worldPets %s · petTP %s · sellAt %s", tostring(S.autoBuy), tostring(S.autoPlant), tostring(S.autoHarvest), tostring(S.spamHarvest), tostring(S.turboFarm), tostring(S.autoEquipPets), tostring(S.autoBuyPets), tostring(S.petTeleport), tostring(S.sellAt)), inline = false },
             { name = "Garden Scan", value = gardenScanSummary(8), inline = false },
             { name = "⏱️ Uptime",   value = hms(os.clock() - Stats.startAt), inline = true },
         }, footer = { text = "WalkyHub · GAG2" },
