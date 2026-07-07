@@ -2430,7 +2430,23 @@ local function doubleClickPetTool(tool)
     task.wait(0.2)
     return true
 end
+local petEquipCooldown = {}
+local petMissingCooldown = {}
+local function hasOwnedPet(name)
+    if not name or name == "" then return false end
+    if invNames("Pets")[name] then return true end
+    return #petToolsByName(name) > 0
+end
 local function equipPetByName(name)
+    if not hasOwnedPet(name) then
+        if os.clock() - (petMissingCooldown[name] or 0) > 60 then
+            petMissingCooldown[name] = os.clock()
+            warn("[Pets] Skip equip; not in inventory: " .. tostring(name))
+        end
+        return false
+    end
+    if os.clock() - (petEquipCooldown[name] or 0) < 45 then return false end
+    petEquipCooldown[name] = os.clock()
     -- Fast path: game's networking action, if it works for current runtime.
     fire("Pets.RequestEquipByName", name)
     task.wait(0.12)
@@ -2440,12 +2456,12 @@ local function equipPetByName(name)
     end
     return false
 end
-loopOn(function() return S.autoEquipPets end, 8, function()
+loopOn(function() return S.autoEquipPets end, 12, function()
     local cap = tonumber(LocalPlayer:GetAttribute("MaxEquippedPets")) or 3
     local have = equippedPetCount()
     if have >= cap then return end
     local order = {}
-    if picked(S.equipPets) then for nm in pairs(S.equipPets) do order[#order + 1] = nm end else order = ownedPetNames() end
+    if picked(S.equipPets) then for nm in pairs(S.equipPets) do if hasOwnedPet(nm) then order[#order + 1] = nm end end else order = ownedPetNames() end
     for _, nm in ipairs(order) do
         if not S.autoEquipPets or have >= cap then break end
         if equipPetByName(nm) then have += 1 end
