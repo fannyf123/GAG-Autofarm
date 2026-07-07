@@ -2001,7 +2001,8 @@ local S = {
     killed = false,
 }
 local Stats = { bought = 0, planted = 0, harvested = 0, sold = 0, earned = 0,
-    sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock() }
+    sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock(),
+    petLast = "idle", webhookLastOk = 0, webhookNextAt = 0, webhookLastError = "none" }
 local WebhookStats = { bought = 0, planted = 0, harvested = 0, sold = 0, opened = 0, stolen = 0 }
 
 local _due = {}
@@ -2536,21 +2537,32 @@ end)
 loopOn(function() return S.autoPetSlot end, 20, function()
     fire("Pets.RequestPurchasePetSlot")
 end)
--- Auto-Buy world pets: walk up (teleport) to each affordable unowned wild pet and buy it.
--- Buying == Pets.WildPetTame:Fire(refPart); server charges Price and REQUIRES proximity.
+-- Auto-Buy world pets: scan all wild pets, pick one affordable unowned target, then TP once.
+-- This keeps pet effects/equip intact while preventing repeated pet-to-pet teleport spam.
+local petBuyCooldown = {}
 loopOn(function() return S.autoBuyPets end, function() return S.petBuyInterval end, function()
+    local cash = getSheckles()
+    local best = nil
     for _, w in ipairs(wildPets()) do
-        if not S.autoBuyPets then break end
-        if w.owner == 0 and w.price > 0 and w.price <= S.maxPetPrice and getSheckles() >= w.price then
-            if S.petTeleport and w.pos then
-                atPosition(w.pos, function() fire("Pets.WildPetTame", w.part) end)
-            else
-                fire("Pets.WildPetTame", w.part)
-            end
-            Stats.tamed += 1
-            task.wait(jitter(0.3, 0.6))
+        local key = tostring(w.name or "pet") .. ":" .. tostring(w.price or 0)
+        local fresh = os.clock() - (petBuyCooldown[key] or 0) > math.max(8, S.petBuyInterval or 5)
+        if w.owner == 0 and w.price > 0 and w.price <= S.maxPetPrice and cash >= w.price and fresh then
+            if (not best) or w.price < best.price then best = w end
         end
     end
+    if not best then
+        Stats.petLast = "no valid target"
+        return
+    end
+    local key = tostring(best.name or "pet") .. ":" .. tostring(best.price or 0)
+    petBuyCooldown[key] = os.clock()
+    Stats.petLast = string.format("target %s @ %s", tostring(best.name or "?"), fmt(best.price or 0))
+    if S.petTeleport and best.pos then
+        atPosition(best.pos, function() fire("Pets.WildPetTame", best.part) end)
+    else
+        fire("Pets.WildPetTame", best.part)
+    end
+    Stats.tamed += 1
 end)
 loopOn(function() return S.autoSellPets end, 4, function()
     if not picked(S.sellPets) then return end
@@ -2834,6 +2846,25 @@ end
 -- //                    WEBHOOK REPORTING                        \ --
 -- // ============================================================ \ --
 local httpRequest = (syn and syn.request) or http_request or request or (http and http.request)
+local function gardenScanSummary(limit)
+    limit = limit or 6
+    local plot = myPlot()
+    local plants = plot and plot:FindFirstChild("Plants")
+    if not plants then return "no plot/plants detected" end
+    local counts, total = {}, 0
+    for _, obj in ipairs(plants:GetDescendants()) do
+        local name = obj:GetAttribute("PlantName") or obj:GetAttribute("SeedName") or obj:GetAttribute("Name")
+        if not name and obj:IsA("Model") then name = obj.Name end
+        if name and name ~= "" then counts[tostring(name)] = (counts[tostring(name)] or 0) + 1; total += 1 end
+    end
+    local rows = {}
+    for name, count in pairs(counts) do rows[#rows + 1] = { name = name, count = count } end
+    table.sort(rows, function(a, b) return a.count > b.count end)
+    local out = {}
+    for i = 1, math.min(limit, #rows) do out[#out + 1] = rows[i].name .. " x" .. tostring(rows[i].count) end
+    return (#out > 0 and table.concat(out, ", ") or "empty") .. " | total " .. tostring(total)
+end
+
 local function hms(sec)
     sec = math.floor(sec); local h = sec//3600; local m = (sec%3600)//60
     if h > 0 then return string.format("%dh %dm", h, m) end
@@ -2869,10 +2900,17 @@ local function sendWebhook(isTest)
             { name = "✨ Extras",   value = string.format("sprinklers %d · watered %d · tamed %d · opened %d · stolen %d",
                 Stats.sprinklers, Stats.watered, Stats.tamed, Stats.opened, Stats.stolen), inline = false },
             { name = "⚙️ Runtime", value = string.format("preset %s · farm %s · fruit %s/%s", tostring(currentPreset), tostring(S.autoFarm or S.autoBuy or S.autoPlant or S.autoHarvest or S.autoSell), tostring(fruitCount()), tostring(maxFruitCap())), inline = false },
+            { name = "Settings", value = string.format("seedBuy %s · plant %s · equipPets %s · worldPets %s · petTP %s · sellAt %s", tostring(S.autoBuy), tostring(S.autoPlant), tostring(S.autoEquipPets), tostring(S.autoBuyPets), tostring(S.petTeleport), tostring(S.sellAt)), inline = false },
+            { name = "Garden Scan", value = gardenScanSummary(8), inline = false },
             { name = "⏱️ Uptime",   value = hms(os.clock() - Stats.startAt), inline = true },
         }, footer = { text = "WalkyHub · GAG2" },
     } } }
     local good, code = webhookPost(payload, false)
+    if good then
+        Stats.webhookLastOk = os.clock(); Stats.webhookLastError = "none"
+    else
+        Stats.webhookLastError = tostring(code or "request failed")
+    end
     if isTest then warn("[Webhook] " .. (good and "Test sent ✅" or ("Failed (" .. tostring(code) .. ")"))) end
     return good
 end
@@ -2892,7 +2930,21 @@ local function sendWebhookEvent(kind, title, description, color)
         }, footer = { text = "WalkyHub · live event" },
     } } }, true)
 end
-loopOn(function() return S.webhookEnabled and S.webhookReport end, function() return S.webhookInterval end, function() sendWebhook(false) end)
+task.spawn(function()
+    local lastReport = 0
+    while not S.killed do
+        local interval = math.max(30, tonumber(S.webhookInterval) or 300)
+        Stats.webhookNextAt = lastReport + interval
+        if S.webhookEnabled and S.webhookReport and webhookReady(true) and os.clock() - lastReport >= interval then
+            lastReport = os.clock()
+            Stats.webhookNextAt = lastReport + interval
+            sendWebhook(false)
+        elseif S.webhookEnabled and S.webhookReport and not webhookReady(true) then
+            Stats.webhookLastError = "webhook not ready"
+        end
+        task.wait(1)
+    end
+end)
 
 -- lightweight live webhook event log (delta-based, low spam)
 task.spawn(function()
@@ -3170,8 +3222,14 @@ task.spawn(function()
         pcall(function() cashLabel:Set(cashText) end)
         pcall(function() statLabel:Set(statText) end)
         pcall(function() dashPreset:Set("Preset: " .. tostring(currentPreset)) end)
+        local webhookText = S.webhookEnabled and ("ON next " .. hms(math.max(0, (Stats.webhookNextAt or 0) - os.clock())) .. " err " .. tostring(Stats.webhookLastError or "none")) or "OFF"
         pcall(function() dashFarm:Set("Farm: " .. (farmOn and "ON" or "OFF")) end)
         pcall(function() dashCash:Set(cashText) end)
+        pcall(function() dashState:Set("Pet: " .. tostring(Stats.petLast or "idle") .. " | Webhook: " .. webhookText) end)
+        pcall(function() dashFruit:Set("Fruit: " .. tostring(fruitCount()) .. "/" .. tostring(maxFruitCap())) end)
+        pcall(function() dashPlants:Set("Plants: " .. gardenScanSummary(4)) end)
+        pcall(function() dashSettings:Set("Settings: buy " .. tostring(S.autoBuy) .. " plant " .. tostring(S.autoPlant) .. " equipPet " .. tostring(S.autoEquipPets) .. " worldPet " .. tostring(S.autoBuyPets)) end)
+        pcall(function() dashPets:Set("Pets: equipped " .. tostring(equippedPetCount()) .. " | " .. tostring(Stats.petLast or "idle")) end)
         pcall(function() dashStats:Set(statText) end)
         task.wait(2)
     end
