@@ -2175,9 +2175,27 @@ end
 
 local function pickMulti(sel, into)
     for k in pairs(into) do into[k] = nil end
-    if type(sel) == "table" then for k, v in pairs(sel) do
-        if v == true then into[k] = true elseif type(v) == "string" then into[v] = true end
-    end end
+    if type(sel) == "string" and sel ~= "" then
+        -- Current GUI dropdown is single-select and returns a string.
+        -- Older code only accepted tables, so manual Seed/Pet dropdowns cleared the setting
+        -- and loops fell back to default/all-owned behavior.
+        into[sel] = true
+    elseif type(sel) == "table" then
+        for k, v in pairs(sel) do
+            if v == true then into[k] = true elseif type(v) == "string" then into[v] = true end
+        end
+    end
+end
+local function selectedNames(map)
+    local out = {}
+    if type(map) == "table" then for k, v in pairs(map) do if v then out[#out + 1] = tostring(k) end end end
+    table.sort(out)
+    return (#out > 0) and table.concat(out, ", ") or "-"
+end
+local function availableActions(paths)
+    local out = {}
+    for _, path in ipairs(paths or {}) do out[#out + 1] = path .. "=" .. tostring(action(path) ~= nil) end
+    return table.concat(out, " | ")
 end
 
 -- // ============================================================ \\ --
@@ -2954,8 +2972,12 @@ local function applyGuiPreset(name)
 end
 
 local function copyDebugInfo()
-    local result = string.format("[GAG DEBUG]\nPreset=%s\nFarm=%s\nFruit=%s/%s\nStats=bought:%s planted:%s harvested:%s sold:%s earned:%s\nAutoHop=%s AllowServerHop=%s\nUltra=%s",
-        tostring(currentPreset), tostring(S.autoFarm or S.autoBuy or S.autoPlant or S.autoHarvest or S.autoSell), tostring(fruitCount()), tostring(maxFruitCap()),
+    local result = string.format("[GAG DEBUG]\nPreset=%s\nFarm=%s AutoBuy=%s AutoEquipPets=%s\nBuySeeds=%s BuyInterval=%s BuyPerTick=%s\nEquipPets=%s OwnedPets=%s EquippedCount=%s\nSeedBuyActions=%s\nFruit=%s/%s\nStats=bought:%s planted:%s harvested:%s sold:%s earned:%s\nAutoHop=%s AllowServerHop=%s\nUltra=%s",
+        tostring(currentPreset), tostring(S.autoFarm or S.autoBuy or S.autoPlant or S.autoHarvest or S.autoSell), tostring(S.autoBuy), tostring(S.autoEquipPets),
+        selectedNames(S.buySeeds), tostring(S.buyInterval), tostring(S.buyPerTick),
+        selectedNames(S.equipPets), table.concat(ownedPetNames(), ", "), tostring(equippedPetCount()),
+        availableActions(SEED_BUY_ACTIONS),
+        tostring(fruitCount()), tostring(maxFruitCap()),
         tostring(Stats.bought), tostring(Stats.planted), tostring(Stats.harvested), tostring(Stats.sold), tostring(Stats.earned),
         tostring(S.autoHop), tostring(S.allowServerHop), tostring(S.ultraPerformance))
     local ok = false
@@ -3004,7 +3026,7 @@ secMaster:Toggle("Auto-Expand garden", false, function(v) S.autoExpand = v end)
 secMaster:Toggle("Auto-Daily deals", false, function(v) S.autoDaily = v end)
 
 local secBuy = farmTab:Section("Buy seeds")
-secBuy:Dropdown("Seeds to buy", SEED_NAMES, {}, function(sel) pickMulti(sel, S.buySeeds) end)
+secBuy:Dropdown("Seed to buy", SEED_NAMES, "Carrot", function(sel) pickMulti(sel, S.buySeeds) end)
 secBuy:Toggle("Auto-Buy selected", false, function(v) S.autoBuy = v end)
 secBuy:Slider("Buy interval (s)", 5, 1, 30, function(v) S.buyInterval = v end)
 secBuy:Slider("Max buys / seed / pass", 8, 1, 50, function(v) S.buyPerTick = v end)
@@ -3035,7 +3057,7 @@ secSkill:Toggle("Auto-Spend skill points", false, function(v) S.autoSkill = v en
 
 -- ---- PETS ----
 local secPet = petsTab:Section("Pets")
-secPet:Dropdown("Pets to equip priority", ownedPetNames(), {}, function(sel) pickMulti(sel, S.equipPets) end)
+secPet:Dropdown("Pet to equip priority", ownedPetNames(), "", function(sel) pickMulti(sel, S.equipPets) end)
 secPet:Toggle("Auto-Equip pets (to slot cap)", false, function(v) S.autoEquipPets = v end)
 secPet:Toggle("Auto-Buy pet slots", false, function(v) S.autoPetSlot = v end)
 secPet:Toggle("Auto-Buy world pets (walk up & buy)", false, function(v) S.autoBuyPets = v end)
