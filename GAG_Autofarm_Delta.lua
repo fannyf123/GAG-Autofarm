@@ -1971,7 +1971,7 @@ local S = {
     -- steal
     autoSteal = false, stealTeleport = true, stealReturnBase = true, stealDelay = 0.05,
     -- misc
-    autoMail = false, autoAcceptGift = false, autoHop = false, hopInterval = 0,
+    autoMail = false, autoAcceptGift = false, autoHop = false, allowServerHop = false, hopInterval = 0,
     codeText = "", autoCodes = false, antiAfk = true,
     -- perf / webhook
     fpsBoost = false,
@@ -2478,17 +2478,46 @@ pcall(function()
         end)
     end
 end)
--- server hop when enabled (RequestHop asks the server to migrate the player)
-loopOn(function() return S.autoHop end, function() return math.max(60, S.hopInterval) end, function()
-    if S.hopInterval > 0 then fire("AntiAfk.RequestHop") end
+-- Server-hop is intentionally guarded: this remote can migrate/rejoin the player.
+loopOn(function() return S.autoHop and S.allowServerHop end, function() return math.max(300, S.hopInterval) end, function()
+    if S.hopInterval > 0 and S.allowServerHop then fire("AntiAfk.RequestHop") end
 end)
--- Anti-AFK: defeat the idle kick via VirtualUser input on Idled (default on)
+
+-- Anti-AFK: two layers. Some executors miss LocalPlayer.Idled, so also pulse safely every 60s.
+local lastAntiAfkPulse = 0
+local function antiAfkPulse(reason)
+    if S.killed or not S.antiAfk then return end
+    local now = os.clock()
+    if now - lastAntiAfkPulse < 8 then return end
+    lastAntiAfkPulse = now
+    pcall(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new(0, 0))
+        VirtualUser:Button2Down(Vector2.new(0, 0), Workspace.CurrentCamera and Workspace.CurrentCamera.CFrame or CFrame.new())
+        task.wait(0.05)
+        VirtualUser:Button2Up(Vector2.new(0, 0), Workspace.CurrentCamera and Workspace.CurrentCamera.CFrame or CFrame.new())
+    end)
+    pcall(function()
+        local vim = game:GetService("VirtualInputManager")
+        vim:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+        task.wait(0.03)
+        vim:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+    end)
+    if reason then warn("[Anti-AFK] pulse: " .. tostring(reason)) end
+end
+
 if VirtualUser then
     LocalPlayer.Idled:Connect(function()
-        if S.killed or not S.antiAfk then return end
-        pcall(function() VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new(0, 0)) end)
+        antiAfkPulse("Idled")
     end)
 end
+
+task.spawn(function()
+    while not S.killed do
+        task.wait(60)
+        antiAfkPulse("timer")
+    end
+end)
 -- codes
 local CODE_LIST = {}                  -- add known GAG2 codes here
 local triedCodes = {}
@@ -2676,7 +2705,7 @@ secMail:Toggle("Auto-Accept gifts", false, function(v) S.autoAcceptGift = v end)
 
 local secHop = miscTab:Section("Session")
 secHop:Toggle("Anti-AFK (never idle-kicked)", true, function(v) S.antiAfk = v end)
-secHop:Toggle("Auto server-hop", false, function(v) S.autoHop = v end)
+secHop:Toggle("Auto server-hop (rejoin)", false, function(v) S.autoHop = v; S.allowServerHop = v end)
 secHop:Slider("Hop every (min, 0=off)", 0, 0, 120, function(v) S.hopInterval = v * 60 end)
 
 local secCode = miscTab:Section("Codes")
