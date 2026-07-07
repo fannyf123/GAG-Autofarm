@@ -1974,7 +1974,7 @@ local S = {
     autoMail = false, autoAcceptGift = false, autoHop = false, allowServerHop = false, hopInterval = 0,
     codeText = "", autoCodes = false, antiAfk = true,
     -- perf / webhook
-    fpsBoost = false,
+    fpsBoost = false, ultraPerformance = false,
     webhookEnabled = false, webhookUrl = "", webhookInterval = 300,
     killed = false,
 }
@@ -2078,10 +2078,15 @@ local function gagFirstName(src)
     end
 end
 
+local applyUltraPerformance
 local function gagApplyPerformance(perf)
     if type(perf) ~= "table" then return end
     if perf["FPS Cap"] and setfpscap then pcall(setfpscap, tonumber(perf["FPS Cap"]) or 0) end
     if perf["Low Graphics"] ~= nil then S.fpsBoost = perf["Low Graphics"] == true; pcall(function() applyFpsBoost(S.fpsBoost) end) end
+    if perf["Disable 3D"] ~= nil or perf["Ultra Performance"] ~= nil then
+        S.ultraPerformance = (perf["Disable 3D"] == true) or (perf["Ultra Performance"] == true)
+        pcall(function() applyUltraPerformance(S.ultraPerformance) end)
+    end
 end
 
 local function gagApplyConfig(raw)
@@ -2543,6 +2548,83 @@ loopOn(function() return S.autoCodes end, 120, function() redeemCodes(CODE_LIST)
 -- //                       PERFORMANCE                           \\ --
 -- // ============================================================ \\ --
 local _fpsApplied = false
+local _ultraPerformanceApplied = false
+local _ultraPerformanceGui = nil
+
+local function getPlayerGuiSafe()
+    return LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui")
+end
+
+function applyUltraPerformance(on)
+    S.ultraPerformance = on == true
+    if not S.ultraPerformance then
+        pcall(function() RunService:Set3dRenderingEnabled(true) end)
+        if _ultraPerformanceGui then pcall(function() _ultraPerformanceGui:Destroy() end); _ultraPerformanceGui = nil end
+        if setfpscap then pcall(setfpscap, 30) end
+        warn("[Performance] Ultra Performance OFF (3D restored if executor supports it)")
+        return
+    end
+
+    if setfpscap then pcall(setfpscap, 10) end
+    pcall(function() RunService:Set3dRenderingEnabled(false) end)
+    pcall(function()
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 1
+        Lighting.Brightness = 0
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+    end)
+
+    pcall(function()
+        for _, d in ipairs(Workspace:GetDescendants()) do
+            if d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Smoke") or d:IsA("Fire") or d:IsA("Sparkles") or d:IsA("Beam") then
+                d.Enabled = false
+            elseif d:IsA("BasePart") or d:IsA("Decal") or d:IsA("Texture") then
+                d.Transparency = 1
+            elseif d:IsA("SpecialMesh") then
+                d.MeshId = ""
+                d.TextureId = ""
+            end
+        end
+    end)
+
+    pcall(function()
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                for _, d in ipairs(plr.Character:GetDescendants()) do
+                    if d:IsA("BasePart") or d:IsA("Decal") then d.Transparency = 1 end
+                end
+            end
+        end
+    end)
+
+    local pg = getPlayerGuiSafe()
+    if pg and not _ultraPerformanceGui then
+        _ultraPerformanceGui = Instance.new("ScreenGui")
+        _ultraPerformanceGui.Name = "GAG_UltraPerformanceOverlay"
+        _ultraPerformanceGui.IgnoreGuiInset = true
+        _ultraPerformanceGui.ResetOnSpawn = false
+        _ultraPerformanceGui.DisplayOrder = 998
+        local bg = Instance.new("Frame")
+        bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        bg.BorderSizePixel = 0
+        bg.Size = UDim2.fromScale(1, 1)
+        bg.Parent = _ultraPerformanceGui
+        local label = Instance.new("TextLabel")
+        label.BackgroundTransparency = 1
+        label.Font = Enum.Font.GothamBold
+        label.Text = "Ultra Performance ON\n3D disabled / hidden — GUI tetap aktif"
+        label.TextColor3 = Color3.fromRGB(140, 255, 170)
+        label.TextSize = 18
+        label.TextWrapped = true
+        label.Size = UDim2.new(1, -40, 0, 80)
+        label.Position = UDim2.new(0, 20, 0.5, -40)
+        label.Parent = bg
+        _ultraPerformanceGui.Parent = pg
+    end
+    _ultraPerformanceApplied = true
+    warn("[Performance] Ultra Performance ON: 3D disabled/hidden")
+end
+
 local function applyFpsBoost(on)
     if on and not _fpsApplied then
         _fpsApplied = true
@@ -2631,7 +2713,7 @@ local function setManualOff()
     S.autoExpand = false; S.autoDaily = false; S.autoSprinkler = false; S.autoWater = false; S.autoSkill = false
     S.autoEquipPets = false; S.autoPetSlot = false; S.autoBuyPets = false; S.autoSellPets = false
     S.autoEgg = false; S.autoCrate = false; S.autoPack = false; S.autoGear = false; S.autoSteal = false
-    S.autoMail = false; S.autoAcceptGift = false; S.autoHop = false; S.allowServerHop = false; S.autoCodes = false
+    S.autoMail = false; S.autoAcceptGift = false; S.autoHop = false; S.allowServerHop = false; S.autoCodes = false; S.ultraPerformance = false
     currentPreset = "Manual"
     warn("[GAGConfig] Manual selected: all automation OFF")
 end
@@ -2771,7 +2853,9 @@ secPreset:Dropdown("Select preset", { "Manual", "Starter", "Balanced", "Rich", "
 
 local secPerf = settingsTab:Section("Performance & Interface")
 secPerf:Toggle("FPS Boost (low graphics)", false, function(v) S.fpsBoost = v; applyFpsBoost(v) end)
-secPerf:Button("Unload hub (stops everything)", function() S.killed = true; pcall(function() ui:Destroy() end) end)
+secPerf:Toggle("Ultra Performance (Disable 3D)", false, function(v) applyUltraPerformance(v) end)
+secPerf:Label("Ultra mode bikin layar hitam/minimal tapi GUI tetap jalan")
+secPerf:Button("Unload hub (stops everything)", function() S.killed = true; pcall(function() applyUltraPerformance(false) end); pcall(function() ui:Destroy() end) end)
 
 local secWeb = settingsTab:Section("Discord Webhook")
 secWeb:Textbox("Webhook URL", "https://discord.com/api/webhooks/...", function(t) S.webhookUrl = t or "" end)
