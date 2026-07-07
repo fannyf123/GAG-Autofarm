@@ -1683,7 +1683,7 @@ do
     if mod then local ok, m = pcall(require, mod); if ok then Net = m end end
 end
 if not Net then
-    warn("[WalkyHub] Networking module not found — wrong game?")
+    warn("[WalkyHub] Networking module not found - wrong game?")
     return
 end
 
@@ -2398,7 +2398,7 @@ local function sellAllNow()
 end
 
 -- THROUGHPUT FIX: inventory caps at MaxFruitCapacity (100) and the server only accepts
--- ~20-25 collects/sec. So harvest in a tight cycle and SELL THE MOMENT the pack is full —
+-- ~20-25 collects/sec. So harvest in a tight cycle and SELL THE MOMENT the pack is full -
 -- never idle holding a full inventory. Firing faster than the server's rate just gets
 -- dropped (delay=0 collected LESS), so harvestDelay paces each collect.
 local function stepHarvest()
@@ -3017,20 +3017,20 @@ end
 local function sendWebhook(isTest)
     if not (isTest or S.webhookReport) then return false end
     local payload = { username = "Grow a Garden 2", embeds = { {
-        title = (isTest and "🧪 Test Report — " or "🌱 Farm Report — ") .. LocalPlayer.Name, color = isTest and 3447003 or 5763719,
+        title = (isTest and "[TEST] Test Report - " or "[FARM] Farm Report - ") .. LocalPlayer.Name, color = isTest and 3447003 or 5763719,
         fields = {
-            { name = "💰 Sheckles", value = fmt(getSheckles()), inline = true },
-            { name = "🪙 Tokens",   value = fmt(getTokens()),   inline = true },
-            { name = "🌾 Plot",     value = tostring((myPlot() and myPlot().Name) or "?"), inline = true },
-            { name = "📊 Session",  value = string.format("bought %d · planted %d · harvested %d · sold %d (+%s)",
+            { name = "Sheckles Sheckles", value = fmt(getSheckles()), inline = true },
+            { name = "Tokens Tokens",   value = fmt(getTokens()),   inline = true },
+            { name = "Plot Plot",     value = tostring((myPlot() and myPlot().Name) or "?"), inline = true },
+            { name = "Session Session",  value = string.format("bought %d - planted %d - harvested %d - sold %d (+%s)",
                 Stats.bought, Stats.planted, Stats.harvested, Stats.sold, fmt(Stats.earned)), inline = false },
-            { name = "✨ Extras",   value = string.format("sprinklers %d · watered %d · tamed %d · opened %d · stolen %d",
+            { name = "Extras Extras",   value = string.format("sprinklers %d - watered %d - tamed %d - opened %d - stolen %d",
                 Stats.sprinklers, Stats.watered, Stats.tamed, Stats.opened, Stats.stolen), inline = false },
-            { name = "⚙️ Runtime", value = runtimeSummary(), inline = false },
-            { name = "🧩 Settings Used", value = settingsSummary(), inline = false },
-            { name = "🌿 Garden Scan", value = gardenScanSummary(15), inline = false },
-            { name = "⏱️ Uptime",   value = hms(os.clock() - Stats.startAt), inline = true },
-        }, footer = { text = "WalkyHub · GAG2" },
+            { name = "Runtime Runtime", value = runtimeSummary(), inline = false },
+            { name = "Settings Used Settings Used", value = settingsSummary(), inline = false },
+            { name = "Garden Scan Garden Scan", value = gardenScanSummary(15), inline = false },
+            { name = "Uptime Uptime",   value = hms(os.clock() - Stats.startAt), inline = true },
+        }, footer = { text = "WalkyHub - GAG2" },
     } } }
     local good, code = webhookPost(payload, false)
     if good then
@@ -3055,7 +3055,7 @@ local function sendWebhookEvent(kind, title, description, color)
             { name = "Player", value = LocalPlayer.Name, inline = true },
             { name = "Preset", value = tostring(currentPreset), inline = true },
             { name = "Uptime", value = hms(os.clock() - Stats.startAt), inline = true },
-        }, footer = { text = "WalkyHub · live event" },
+        }, footer = { text = "WalkyHub - live event" },
     } } }, true)
 end
 task.spawn(function()
@@ -3088,27 +3088,27 @@ task.spawn(function()
     while not S.killed do
         if S.webhookEnabled and S.webhookEvents and webhookReady(true) then
             if Stats.bought > WebhookStats.bought then
-                sendWebhookEvent("bought", "🛒 Seeds bought", "+" .. tostring(Stats.bought - WebhookStats.bought) .. " seeds bought (total " .. tostring(Stats.bought) .. ")", 5763719)
+                sendWebhookEvent("bought", "Seeds bought Seeds bought", "+" .. tostring(Stats.bought - WebhookStats.bought) .. " seeds bought (total " .. tostring(Stats.bought) .. ")", 5763719)
                 WebhookStats.bought = Stats.bought
             end
             if Stats.planted > WebhookStats.planted then
-                sendWebhookEvent("planted", "🌱 Seeds planted", "+" .. tostring(Stats.planted - WebhookStats.planted) .. " planted (total " .. tostring(Stats.planted) .. ")", 5763719)
+                sendWebhookEvent("planted", "[FARM] Seeds planted", "+" .. tostring(Stats.planted - WebhookStats.planted) .. " planted (total " .. tostring(Stats.planted) .. ")", 5763719)
                 WebhookStats.planted = Stats.planted
             end
             if Stats.harvested > WebhookStats.harvested then
-                sendWebhookEvent("harvested", "✅ Fruit harvested", "+" .. tostring(Stats.harvested - WebhookStats.harvested) .. " harvested (total " .. tostring(Stats.harvested) .. ")", 3066993)
+                sendWebhookEvent("harvested", "OK Fruit harvested", "+" .. tostring(Stats.harvested - WebhookStats.harvested) .. " harvested (total " .. tostring(Stats.harvested) .. ")", 3066993)
                 WebhookStats.harvested = Stats.harvested
             end
             if Stats.sold > WebhookStats.sold then
-                sendWebhookEvent("sold", "💰 Fruit sold", "+" .. tostring(Stats.sold - WebhookStats.sold) .. " sold · earned +" .. fmt(Stats.earned), 16766720)
+                sendWebhookEvent("sold", "Sheckles Fruit sold", "+" .. tostring(Stats.sold - WebhookStats.sold) .. " sold - earned +" .. fmt(Stats.earned), 16766720)
                 WebhookStats.sold = Stats.sold
             end
             if Stats.opened > WebhookStats.opened then
-                sendWebhookEvent("opened", "📦 Items opened", "+" .. tostring(Stats.opened - WebhookStats.opened) .. " opened (total " .. tostring(Stats.opened) .. ")", 10181046)
+                sendWebhookEvent("opened", "Items opened Items opened", "+" .. tostring(Stats.opened - WebhookStats.opened) .. " opened (total " .. tostring(Stats.opened) .. ")", 10181046)
                 WebhookStats.opened = Stats.opened
             end
             if Stats.stolen > WebhookStats.stolen then
-                sendWebhookEvent("stolen", "🌙 Fruit stolen", "+" .. tostring(Stats.stolen - WebhookStats.stolen) .. " stolen (total " .. tostring(Stats.stolen) .. ")", 15158332)
+                sendWebhookEvent("stolen", "Fruit stolen Fruit stolen", "+" .. tostring(Stats.stolen - WebhookStats.stolen) .. " stolen (total " .. tostring(Stats.stolen) .. ")", 15158332)
                 WebhookStats.stolen = Stats.stolen
             end
         end
@@ -3222,9 +3222,9 @@ secDashTips:Label("4) Webhook ada di Settings, report otomatis sesuai interval")
 
 -- ---- FARM ----
 local secStatus = farmTab:Section("Status")
-local plotLabel = secStatus:Label("Plot: …")
-local cashLabel = secStatus:Label("Sheckles: …")
-local statLabel = secStatus:Label("—")
+local plotLabel = secStatus:Label("Plot: ...")
+local cashLabel = secStatus:Label("Sheckles: ...")
+local statLabel = secStatus:Label("-")
 
 local secMaster = farmTab:Section("Auto-Farm (master)")
 secMaster:Toggle("Auto-Farm (buy+plant+harvest+sell+expand)", false, function(v) S.autoFarm = v end)
@@ -3243,7 +3243,7 @@ secPlant:Dropdown("Seed to plant", plantOpts, "Best owned", function(v) S.plantS
 secPlant:Toggle("Auto-Plant (fill plot)", false, function(v) S.autoPlant = v end)
 secPlant:Slider("Plant spacing (studs)", 4, 2, 10, function(v) S.plantSpacing = v end)
 secPlant:Toggle("Auto-Harvest ripe fruit", false, function(v) S.autoHarvest = v end)
-secPlant:Slider("Harvest pace (s/fruit · 0.02≈max)", 0.01, 0, 0.2, function(v) S.harvestDelay = v end)
+secPlant:Slider("Harvest pace (s/fruit - 0.02~max)", 0.01, 0, 0.2, function(v) S.harvestDelay = v end)
 secPlant:Toggle("Auto-Sell (sell when fruit >= Sell At)", false, function(v) S.autoSell = v end)
 secPlant:Slider("Sell At fruit count", 85, 1, 200, function(v) S.sellAt = math.floor(v) end)
 secPlant:Slider("Sell interval (s, sell-only mode)", 15, 3, 120, function(v) S.sellInterval = v end)
@@ -3303,7 +3303,7 @@ secSteal:Toggle("Teleport to fruit (needed to steal)", true, function(v) S.steal
 secSteal:Toggle("Return to base after each fruit (banks it)", true, function(v) S.stealReturnBase = v end)
 secSteal:Slider("Steal speed (delay/fruit, 0=instant)", 0.05, 0, 1, function(v) S.stealDelay = v end)
 local secStealInfo = stealTab:Section("Info")
-secStealInfo:Label("Night-only · TP to fruit, steal,")
+secStealInfo:Label("Night-only - TP to fruit, steal,")
 secStealInfo:Label("then TP home to bank each one.")
 
 -- ---- MISC ----
@@ -3346,7 +3346,7 @@ secWeb:Button("Send test report", function() task.spawn(function() sendWebhook(t
 secWeb:Label("Report berisi wallet, runtime, settings, dan scan ladang.")
 
 local secInfo = settingsTab:Section("Info")
-secInfo:Label("Grow a Garden 2 · WalkyHub")
+secInfo:Label("Grow a Garden 2 - WalkyHub")
 secInfo:Label("Hotkey: Left Ctrl toggles UI")
 
 -- Apply _G.GAGConfig after UI controls finish their default callbacks.
@@ -3425,5 +3425,5 @@ pcall(function()
     } end
 end)
 
-warn("[WalkyHub] GAG2 full-auto loaded · " .. #SEED_NAMES .. " seeds · " .. #GEAR_NAMES .. " gear")
+warn("[WalkyHub] GAG2 full-auto loaded - " .. #SEED_NAMES .. " seeds - " .. #GEAR_NAMES .. " gear")
 print("[WalkyHub] Grow a Garden 2 full-auto loaded.")
