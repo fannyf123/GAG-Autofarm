@@ -1504,6 +1504,7 @@ end
 function Section:Dropdown(text, options, default, callback)
 	local theme = self.Window.Theme
 	local compact = self.Window.IsCompact
+	options = type(options) == "table" and options or {}
 	local selected = (type(default) == "string" and default ~= "") and default or options[1] or ""
 	local open = false
 	local row, rowStroke = self:_baseRow(46)
@@ -2490,6 +2491,11 @@ local function equippedPetCount()
     end
     return 0
 end
+local PET_NAMES = {
+    "All valid targets", "Dog", "Golden Lab", "Bunny", "Black Bunny", "Chicken", "Cat", "Deer",
+    "Orange Tabby", "Spotted Deer", "Pig", "Rooster", "Monkey", "Cow", "Silver Monkey",
+    "Sea Otter", "Turtle", "Polar Bear", "Dragonfly", "Raccoon", "Disco Bee", "Butterfly",
+}
 local function petToolsByName(name)
     local out = {}
     for _, t in ipairs(toolsByAttr("PetId")) do
@@ -3166,7 +3172,7 @@ secSkill:Toggle("Auto-Spend skill points", false, function(v) S.autoSkill = v en
 -- ---- PETS ----
 local secPet = petsTab:Section("Pets")
 secPet:Dropdown("Pet to equip priority", ownedPetNames(), "", function(sel) pickMulti(sel, S.equipPets) end)
-secPet:Dropdown("World pet buy targets", PET_NAMES, {}, function(sel) pickMulti(sel, S.buyPets) end)
+secPet:Dropdown("World pet buy targets", PET_NAMES, {}, function(sel) pickMulti(sel, S.buyPets); S.buyPets["All valid targets"] = nil end)
 secPet:Toggle("Auto-Equip pets (to slot cap)", false, function(v) S.autoEquipPets = v end)
 secPet:Toggle("Auto-Buy pet slots", false, function(v) S.autoPetSlot = v end)
 secPet:Toggle("Auto-Buy world pets (walk up & buy)", false, function(v) S.autoBuyPets = v end)
