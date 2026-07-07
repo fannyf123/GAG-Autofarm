@@ -1954,7 +1954,7 @@ local S = {
     autoBuy = false, buySeeds = {}, buyInterval = 5, buyPerTick = 8,
     autoPlant = false, plantSpacing = 4, plantSeed = "Best owned",
     autoHarvest = false, harvestInterval = 2, harvestDelay = 0.01,
-    autoSell = false, sellInterval = 15,
+    autoSell = false, sellAt = 85, sellInterval = 15,
     autoExpand = false, autoPot = false, autoDaily = false,
     -- boosts
     autoSprinkler = false, sprinklerInterval = 30,
@@ -2093,6 +2093,7 @@ local function gagApplyConfig(raw)
     local misc, perf = cfg.Misc or {}, cfg.Performance or {}
 
     if h["Auto Harvest"] ~= nil then S.autoHarvest = h["Auto Harvest"] == true; S.autoSell = S.autoHarvest end
+    if h["Sell At"] ~= nil then S.sellAt = math.max(1, tonumber(h["Sell At"]) or S.sellAt) end
     if h["Sell Every"] ~= nil then S.sellInterval = math.max(3, tonumber(h["Sell Every"]) or S.sellInterval) end
 
     if p["Auto Plant"] ~= nil then S.autoPlant = p["Auto Plant"] == true end
@@ -2221,12 +2222,13 @@ local function stepHarvest()
     local sell = (S.autoFarm or S.autoSell)
     local list = ripeHarvests()
     if #list == 0 then
-        if sell and fruitCount() > 0 then 
+        if sell and fruitCount() >= math.min(S.sellAt or 85, maxFruitCap()) then
             pcall(sellAllNow)
         end
         return
     end
     local cap = maxFruitCap()
+    local sellAt = math.min(S.sellAt or 85, cap)
     local d = S.harvestDelay or 0
     -- fire a fresh batch of collects (the firing time lets the async collects materialize
     -- into the pack), stop if the pack is genuinely full, then sell the whole batch at once.
@@ -2236,12 +2238,14 @@ local function stepHarvest()
         pcall(function() fireFast("Garden.CollectFruit", h.plantId, h.fruitId) end)
         Stats.harvested += 1
         if d > 0 then task.wait(d) end
+        if sell and fruitCount() >= sellAt then break end
     end
-    if sell then pcall(sellAllNow) end
+    if sell and fruitCount() >= sellAt then pcall(sellAllNow) end
 end
 
 local function stepSell()       -- sell-only mode (when Auto-Harvest is off)
     if not due("sell", S.sellInterval) then return end
+    if fruitCount() < math.min(S.sellAt or 85, maxFruitCap()) then return end
     local n = sellAllNow()
     if n > 0 then warn("[Sold] " .. n .. " items") end
 end
@@ -2686,7 +2690,8 @@ secPlant:Toggle("Auto-Plant (fill plot)", false, function(v) S.autoPlant = v end
 secPlant:Slider("Plant spacing (studs)", 4, 2, 10, function(v) S.plantSpacing = v end)
 secPlant:Toggle("Auto-Harvest ripe fruit", false, function(v) S.autoHarvest = v end)
 secPlant:Slider("Harvest pace (s/fruit · 0.02≈max)", 0.01, 0, 0.2, function(v) S.harvestDelay = v end)
-secPlant:Toggle("Auto-Sell (auto-sells when pack full)", false, function(v) S.autoSell = v end)
+secPlant:Toggle("Auto-Sell (sell when fruit >= Sell At)", false, function(v) S.autoSell = v end)
+secPlant:Slider("Sell At fruit count", 85, 1, 200, function(v) S.sellAt = math.floor(v) end)
 secPlant:Slider("Sell interval (s, sell-only mode)", 15, 3, 120, function(v) S.sellInterval = v end)
 secPlant:Toggle("Auto-Pot grown plants", false, function(v) S.autoPot = v end)
 
