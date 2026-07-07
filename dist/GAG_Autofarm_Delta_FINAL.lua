@@ -1884,6 +1884,87 @@ local function existingPlantPositions()
     return out
 end
 
+local function emptyPlantPositions(spacing)
+    spacing = math.max(2, spacing or S.plantSpacing or 4)
+    local free, occupied = {}, existingPlantPositions()
+    local minDist = math.max(2.5, spacing * 0.85)
+    for _, pos in ipairs(plantGrid(spacing)) do
+        local clear = true
+        for _, op in ipairs(occupied) do
+            if (Vector2.new(pos.X, pos.Z) - Vector2.new(op.X, op.Z)).Magnitude < minDist then clear = false; break end
+        end
+        if clear then free[#free + 1] = pos end
+    end
+    return free
+end
+
+local function plantModelName(m)
+    if not m then return nil end
+    return normalizeSeedName(m:GetAttribute("PlantName") or m:GetAttribute("SeedName") or m:GetAttribute("Name") or m.Name) or tostring(m.Name)
+end
+
+local function targetPlantMap(seedName)
+    local map = {}
+    if type(S.plantPlan) == "table" and picked(S.plantPlan) then
+        for name in pairs(S.plantPlan) do map[name] = true end
+    elseif seedName and seedName ~= "" then
+        map[seedName] = true
+    elseif S.plantSeed and S.plantSeed ~= "" and S.plantSeed ~= "Best owned" then
+        map[S.plantSeed] = true
+    elseif picked(S.buySeeds) then
+        for name in pairs(S.buySeeds) do map[name] = true end
+    end
+    return map
+end
+
+local function countTargetSeedTools(targets)
+    local total = 0
+    if picked(targets) then
+        for name in pairs(targets) do
+            for _, _ in ipairs(toolsByAttr("SeedTool", name)) do total += 1 end
+        end
+    else
+        for _, _ in ipairs(toolsByAttr("SeedTool")) do total += 1 end
+    end
+    return total
+end
+
+local SHOVEL_ACTIONS = { "Garden.ShovelPlant", "Garden.RemovePlant", "Plant.ShovelPlant", "Plant.RemovePlant", "Plants.ShovelPlant", "Plants.RemovePlant" }
+local function shovelPlantModel(m)
+    local plantId = m and (m:GetAttribute("PlantId") or m:GetAttribute("Id") or m.Name)
+    if not plantId then return false end
+    local ok = fireFirst(SHOVEL_ACTIONS, tostring(plantId))
+    if not ok then ok = fireFirst(SHOVEL_ACTIONS, m) end
+    return ok == true
+end
+
+local function stepShovelForPlanting(seedName)
+    if not S.autoReplacePlants then return 0 end
+    if not due("autoShovelReplace", 1.5) then return 0 end
+    local targets = targetPlantMap(seedName)
+    local seedReady = countTargetSeedTools(targets)
+    if seedReady <= 0 then return 0 end
+    local plot = myPlot(); local plants = plot and plot:FindFirstChild("Plants")
+    if not plants then return 0 end
+    local maxRemove = math.min(seedReady, tonumber(S.shovelPerCycle) or 8)
+    local removed = 0
+    for _, m in ipairs(plants:GetChildren()) do
+        if removed >= maxRemove or not (S.autoFarm or S.autoPlant) then break end
+        local name = plantModelName(m)
+        local mutation = tostring(m:GetAttribute("Mutation") or m:GetAttribute("Variant") or "")
+        local protected = (name and targets[name]) or S.neverSellFruit[name] or S.neverSellMut[mutation]
+            or mutation == "Gold" or mutation == "Rainbow" or mutation == "Starstruck"
+        if not protected then
+            if shovelPlantModel(m) then
+                removed += 1
+                Stats.lastAction = "shoveled " .. tostring(name or "plant")
+                task.wait(0.12)
+            end
+        end
+    end
+    return removed
+end
+
 -- carrier model that holds PlantId/FruitId/UserId for a given prompt
 local function promptCarrier(prompt)
     local node = prompt.Parent
@@ -1990,7 +2071,7 @@ local S = {
     autoPlant = false, plantSpacing = 4, plantSeed = "Best owned", plantPlan = {}, plantLimit = 0, keepSeeds = {},
     autoHarvest = false, harvestInterval = 2, harvestDelay = 0, spamHarvest = true, turboFarm = true, spamHarvestBatch = 50, onlyHarvest = {}, dontHarvest = {}, neverSellFruit = {}, neverSellMut = {},
     autoSell = false, sellAt = 85, sellInterval = 15,
-    autoExpand = false, autoPot = false, autoDaily = false,
+    autoExpand = false, autoPot = false, autoDaily = false, autoReplacePlants = false, shovelPerCycle = 8,
     -- boosts
     autoSprinkler = false, sprinklerInterval = 30,
     autoWater = false, waterInterval = 8,
@@ -2156,6 +2237,7 @@ local function gagApplyConfig(raw)
     if type(p["Buy Seeds"]) == "table" then gagSetMapFromList(S.buySeeds, p["Buy Seeds"]); S.autoBuy = picked(S.buySeeds) end
 
     if m["Auto Expand Plot"] ~= nil then S.autoExpand = m["Auto Expand Plot"] == true end
+    if m["Auto Replace Plants"] ~= nil then S.autoReplacePlants = m["Auto Replace Plants"] == true end
     if misc["Auto Daily Deal"] ~= nil then S.autoDaily = misc["Auto Daily Deal"] == true end
 
     if type(pets.Buy) == "table" then gagSetMapFromList(S.buyPets, pets.Buy); S.autoBuyPets = picked(S.buyPets); local max=0; for _,v in pairs(pets.Buy) do if type(v)=="number" and v>max then max=v end end; if max>0 then S.maxPetPrice=1000000 end end
@@ -2313,17 +2395,16 @@ end
 
 local function canPlantNow()
     local _, totalPlants = plantCounts()
-    if (S.plantLimit or 0) > 0 and totalPlants >= S.plantLimit then return false end
-    if not pickPlantTool() then return false end
-    return #plantGrid(S.plantSpacing) > 0
+    if (S.plantLimit or 0) > 0 and totalPlants >= S.plantLimit and not S.autoReplacePlants then return false end
+    local tool = pickPlantTool(); if not tool then return false end
+    if #emptyPlantPositions(S.plantSpacing) > 0 then return true end
+    return S.autoReplacePlants == true
 end
 
 local function stepPlant()
     Stats.state = "PLANT"
     local _, totalPlants = plantCounts()
-    if (S.plantLimit or 0) > 0 and totalPlants >= S.plantLimit then return end
-    local grid = plantGrid(S.plantSpacing)
-    if #grid == 0 then return end
+    if (S.plantLimit or 0) > 0 and totalPlants >= S.plantLimit and not S.autoReplacePlants then return end
     local tool = pickPlantTool(); if not tool then return end
     local hum = humanoid(); if not hum then return end
     if heldToolByAttr("SeedTool") ~= tool then 
@@ -2333,15 +2414,14 @@ local function stepPlant()
     tool = heldToolByAttr("SeedTool"); if not tool then return end
     local seedAttr = tool:GetAttribute("SeedTool")
     if not seedAttr then return end
-    local occupied = existingPlantPositions()
-    for _, pos in ipairs(grid) do
+    local empty = emptyPlantPositions(S.plantSpacing)
+    if #empty == 0 then
+        stepShovelForPlanting(seedAttr)
+        return
+    end
+    for _, pos in ipairs(empty) do
         if not (S.autoFarm or S.autoPlant) then break end
-        local clear = true
-        for _, op in ipairs(occupied) do
-            if (Vector2.new(pos.X, pos.Z) - Vector2.new(op.X, op.Z)).Magnitude < 1 then clear = false; break end
-        end
-        if clear then
-            if not heldToolByAttr("SeedTool") then
+        if not heldToolByAttr("SeedTool") then
                 local nx = pickPlantTool(); if not nx then return end
                 pcall(function() hum:EquipTool(nx) end)
                 task.wait(0.06)
@@ -2350,9 +2430,8 @@ local function stepPlant()
                 if not seedAttr then return end
             end
             pcall(function() fire("Plant.PlantSeed", pos, seedAttr, tool) end)
-            Stats.planted += 1; Stats.lastAction = "planted " .. tostring(seedAttr); occupied[#occupied + 1] = pos
+            Stats.planted += 1; Stats.lastAction = "planted " .. tostring(seedAttr)
             task.wait(jitter(0.025, 0.055))
-        end
     end
 end
 
@@ -3128,7 +3207,7 @@ local settingsTab = ui:Tab("Settings")
 currentPreset = currentPreset or "Manual"
 local function setManualOff()
     S.autoFarm = false; S.autoBuy = false; S.autoPlant = false; S.autoHarvest = false; S.autoSell = false
-    S.autoExpand = false; S.autoDaily = false; S.autoSprinkler = false; S.autoWater = false; S.autoSkill = false
+    S.autoExpand = false; S.autoDaily = false; S.autoReplacePlants = false; S.autoSprinkler = false; S.autoWater = false; S.autoSkill = false
     S.autoEquipPets = false; S.autoPetSlot = false; S.autoBuyPets = false; S.autoSellPets = false
     for k in pairs(S.buyPets) do S.buyPets[k] = nil end
     S.autoEgg = false; S.autoCrate = false; S.autoPack = false; S.autoGear = false; S.autoSteal = false
@@ -3221,6 +3300,8 @@ secPlant:Toggle("Auto-Sell (sell when fruit >= Sell At)", false, function(v) S.a
 secPlant:Slider("Sell At fruit count", 85, 1, 200, function(v) S.sellAt = math.floor(v) end)
 secPlant:Slider("Sell interval (s, sell-only mode)", 15, 3, 120, function(v) S.sellInterval = v end)
 secPlant:Toggle("Auto-Pot grown plants", false, function(v) S.autoPot = v end)
+secPlant:Toggle("Auto-Shovel non-target when full", false, function(v) S.autoReplacePlants = v end)
+secPlant:Slider("Shovel max / cycle", 8, 1, 30, function(v) S.shovelPerCycle = math.floor(v) end)
 
 -- ---- BOOSTS ----
 local secSpr = boostsTab:Section("Sprinklers & Water")
@@ -3355,7 +3436,7 @@ task.spawn(function()
         pcall(function() dashState:Set("State: " .. tostring(Stats.state or "IDLE") .. " | Last: " .. tostring(Stats.lastAction or "idle") .. " | Webhook: " .. webhookText) end)
         pcall(function() dashFruit:Set("Fruit: " .. tostring(fruitCount()) .. "/" .. tostring(maxFruitCap())) end)
         pcall(function() dashPlants:Set("Plants: " .. gardenScanSummary(4)) end)
-        pcall(function() dashSettings:Set("Settings: buy " .. tostring(S.autoBuy) .. " plant " .. tostring(S.autoPlant) .. " equipPet " .. tostring(S.autoEquipPets) .. " worldPet " .. tostring(S.autoBuyPets) .. " spamHarvest " .. tostring(S.spamHarvest) .. " turbo " .. tostring(S.turboFarm)) end)
+        pcall(function() dashSettings:Set("Settings: buy " .. tostring(S.autoBuy) .. " plant " .. tostring(S.autoPlant) .. " equipPet " .. tostring(S.autoEquipPets) .. " worldPet " .. tostring(S.autoBuyPets) .. " spamHarvest " .. tostring(S.spamHarvest) .. " turbo " .. tostring(S.turboFarm) .. " shovel " .. tostring(S.autoReplacePlants)) end)
         pcall(function() dashPets:Set("Pets: equipped " .. tostring(equippedPetCount()) .. " | buy " .. selectedNames(S.buyPets) .. " | " .. tostring(Stats.petLast or "idle")) end)
         pcall(function() dashStats:Set(statText) end)
         task.wait(2)
