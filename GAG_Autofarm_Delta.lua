@@ -1865,7 +1865,7 @@ local function ripeHarvests()       -- own ripe fruit (tag "HarvestPrompt")
             if pid then
                 local uid = tonumber(m:GetAttribute("UserId"))
                 if uid == nil or uid == LocalPlayer.UserId then
-                    out[#out + 1] = { plantId = tostring(pid), fruitId = tostring(m:GetAttribute("FruitId") or "") }
+                    out[#out + 1] = { plantId = tostring(pid), fruitId = tostring(m:GetAttribute("FruitId") or ""), name = m:GetAttribute("FruitName") or m:GetAttribute("PlantName") or m.Name, mutation = m:GetAttribute("Mutation") or m:GetAttribute("Variant") or "" }
                 end
             end
         end
@@ -1952,8 +1952,8 @@ local S = {
     autoFarm = false,
     -- buy / plant / harvest / sell
     autoBuy = false, buySeeds = {}, buyInterval = 5, buyPerTick = 8,
-    autoPlant = false, plantSpacing = 4, plantSeed = "Best owned",
-    autoHarvest = false, harvestInterval = 2, harvestDelay = 0.01,
+    autoPlant = false, plantSpacing = 4, plantSeed = "Best owned", plantPlan = {}, plantLimit = 0, keepSeeds = {},
+    autoHarvest = false, harvestInterval = 2, harvestDelay = 0.01, onlyHarvest = {}, dontHarvest = {}, neverSellFruit = {}, neverSellMut = {},
     autoSell = false, sellAt = 85, sellInterval = 15,
     autoExpand = false, autoPot = false, autoDaily = false,
     -- boosts
@@ -1961,7 +1961,7 @@ local S = {
     autoWater = false, waterInterval = 8,
     autoSkill = false, skillStats = {},          -- {"BaseSpeed"=true,...}
     -- pets
-    autoEquipPets = false, autoPetSlot = false,
+    autoEquipPets = false, equipPets = {}, autoPetSlot = false,
     autoBuyPets = false, maxPetPrice = 25000, petTeleport = true, petBuyInterval = 5,
     sellPets = {}, autoSellPets = false,
     -- eggs / crates / packs
@@ -1971,7 +1971,7 @@ local S = {
     -- steal
     autoSteal = false, stealTeleport = true, stealReturnBase = true, stealDelay = 0.05,
     -- misc
-    autoMail = false, autoAcceptGift = false, autoHop = false, allowServerHop = false, hopInterval = 0,
+    autoMail = false, mailSendTo = "", mailSend = {}, mailSendEvery = 45, lastMailSend = 0, autoAcceptGift = false, autoHop = false, allowServerHop = false, hopInterval = 0,
     codeText = "", autoCodes = false, antiAfk = true,
     -- perf / webhook
     fpsBoost = false, ultraPerformance = false,
@@ -2078,7 +2078,7 @@ local function gagFirstName(src)
     end
 end
 
-local applyUltraPerformance
+local applyFpsBoost, applyUltraPerformance
 local function gagApplyPerformance(perf)
     if type(perf) ~= "table" then return end
     if perf["FPS Cap"] and setfpscap then pcall(setfpscap, tonumber(perf["FPS Cap"]) or 0) end
@@ -2100,18 +2100,27 @@ local function gagApplyConfig(raw)
     if h["Auto Harvest"] ~= nil then S.autoHarvest = h["Auto Harvest"] == true; S.autoSell = S.autoHarvest end
     if h["Sell At"] ~= nil then S.sellAt = math.max(1, tonumber(h["Sell At"]) or S.sellAt) end
     if h["Sell Every"] ~= nil then S.sellInterval = math.max(3, tonumber(h["Sell Every"]) or S.sellInterval) end
+    if type(h["Only Harvest"]) == "table" then gagSetMapFromList(S.onlyHarvest, h["Only Harvest"]) end
+    if type(h["Don't Harvest"]) == "table" then gagSetMapFromList(S.dontHarvest, h["Don't Harvest"]) end
+    if cfg["Never Sell"] then
+        if type(cfg["Never Sell"]["By Fruit"]) == "table" then gagSetMapFromList(S.neverSellFruit, cfg["Never Sell"]["By Fruit"]) end
+        if type(cfg["Never Sell"]["By Mutation"]) == "table" then gagSetMapFromList(S.neverSellMut, cfg["Never Sell"]["By Mutation"]) end
+    end
 
     if p["Auto Plant"] ~= nil then S.autoPlant = p["Auto Plant"] == true end
     if p.Layout == "spread" then S.plantSpacing = 8 elseif p.Layout == "compact" then S.plantSpacing = 4 end
     local onlyPlant = gagFirstName(p["Only Plant"] or p["Plant Plan"])
     if onlyPlant then S.plantSeed = onlyPlant end
+    if type(p["Plant Plan"]) == "table" then S.plantPlan = gagClone(p["Plant Plan"]) end
+    if type(p["Keep Seeds"]) == "table" then S.keepSeeds = gagClone(p["Keep Seeds"]) end
+    if p["Plant Limit"] ~= nil then S.plantLimit = math.max(0, tonumber(p["Plant Limit"]) or 0) end
     if type(p["Buy Seeds"]) == "table" then gagSetMapFromList(S.buySeeds, p["Buy Seeds"]); S.autoBuy = picked(S.buySeeds) end
 
     if m["Auto Expand Plot"] ~= nil then S.autoExpand = m["Auto Expand Plot"] == true end
     if misc["Auto Daily Deal"] ~= nil then S.autoDaily = misc["Auto Daily Deal"] == true end
 
     if type(pets.Buy) == "table" then S.autoBuyPets = picked(pets.Buy); local max=0; for _,v in pairs(pets.Buy) do if type(v)=="number" and v>max then max=v end end; if max>0 then S.maxPetPrice=1000000 end end
-    if type(pets.Equip) == "table" then S.autoEquipPets = picked(pets.Equip) end
+    if type(pets.Equip) == "table" then gagSetMapFromList(S.equipPets, pets.Equip); S.autoEquipPets = picked(S.equipPets) end
     if pets["Auto Buy Slots"] ~= nil then S.autoPetSlot = pets["Auto Buy Slots"] == true end
 
     if type(gear["Buy Gear"]) == "table" then gagSetMapFromList(S.gearBuy, gear["Buy Gear"]); S.autoGear = picked(S.gearBuy) end
@@ -2120,6 +2129,9 @@ local function gagApplyConfig(raw)
 
     if cfg["Event Seeds"] and cfg["Event Seeds"]["Auto Claim"] ~= nil then S.autoPack = cfg["Event Seeds"]["Auto Claim"] == true end
     if mail["Auto Claim"] ~= nil then S.autoMail = mail["Auto Claim"] == true end
+    if type(mail["Send To"]) == "string" then S.mailSendTo = mail["Send To"] end
+    if mail["Send Every"] ~= nil then S.mailSendEvery = math.max(10, (tonumber(mail["Send Every"]) or 0) * 60); if mail["Send Every"] == 0 then S.mailSendEvery = 45 end end
+    if type(mail["Send"]) == "table" then S.mailSend = gagClone(mail["Send"]) end
     if misc["Fast Travel"] ~= nil then S.stealTeleport = misc["Fast Travel"] == true; S.petTeleport = misc["Fast Travel"] == true end
     gagApplyPerformance(perf)
 
@@ -2156,10 +2168,44 @@ local function stepBuy()
     end
 end
 
+local function plantCounts()
+    local counts, plot = {}, myPlot()
+    local plants = plot and plot:FindFirstChild("Plants")
+    if not plants then return counts, 0 end
+    local total = 0
+    for _, m in ipairs(plants:GetChildren()) do
+        local name = m:GetAttribute("PlantName") or m:GetAttribute("SeedName") or m.Name
+        counts[name] = (counts[name] or 0) + 1
+        total += 1
+    end
+    return counts, total
+end
+local function seedToolCount(seedName)
+    local n = 0
+    for _, t in ipairs(toolsByAttr("SeedTool", seedName)) do n += 1 end
+    return n
+end
+local function seedAllowedByKeep(seedName)
+    local keep = tonumber(S.keepSeeds and S.keepSeeds[seedName]) or 0
+    return seedToolCount(seedName) > keep
+end
+local function plannedSeedTarget()
+    if type(S.plantPlan) ~= "table" or not picked(S.plantPlan) then return nil end
+    local counts = plantCounts()
+    for name, target in pairs(S.plantPlan) do
+        if (counts[name] or 0) < (tonumber(target) or 0) and seedAllowedByKeep(name) then return name end
+    end
+    return nil
+end
 local function pickPlantTool()
+    local planned = plannedSeedTarget()
+    if planned then
+        local t = toolsByAttr("SeedTool", planned)[1]
+        if t and seedAllowedByKeep(planned) then return t end
+    end
     if S.plantSeed ~= "Best owned" and S.plantSeed ~= "" then
         local t = toolsByAttr("SeedTool", S.plantSeed)[1]
-        if t then return t end
+        if t and seedAllowedByKeep(S.plantSeed) then return t end
     end
     -- best owned = rarest/most expensive seed we hold
     local best, bestPrice
@@ -2167,12 +2213,14 @@ local function pickPlantTool()
         local nm = t:GetAttribute("SeedTool")
         local price = 0
         for _, s in ipairs(CATALOG) do if s.name == nm then price = s.price; break end end
-        if not bestPrice or price > bestPrice then best, bestPrice = t, price end
+        if seedAllowedByKeep(nm) and (not bestPrice or price > bestPrice) then best, bestPrice = t, price end
     end
     return best or toolsByAttr("SeedTool")[1]
 end
 
 local function stepPlant()
+    local _, totalPlants = plantCounts()
+    if (S.plantLimit or 0) > 0 and totalPlants >= S.plantLimit then return end
     local grid = plantGrid(S.plantSpacing)
     if #grid == 0 then return end
     local tool = pickPlantTool(); if not tool then return end
@@ -2210,6 +2258,10 @@ end
 local function maxFruitCap() return tonumber(LocalPlayer:GetAttribute("MaxFruitCapacity")) or 100 end
 local function fruitCount()  return tonumber(LocalPlayer:GetAttribute("FruitCount")) or 0 end
 local function sellAllNow()
+    if picked(S.neverSellFruit) or picked(S.neverSellMut) then
+        warn("[NeverSell] SellAll blocked because Never Sell protection is configured")
+        return 0
+    end
     local ok, res = fireFast("NPCS.SellAll")
     if ok and type(res) == "table" and res.Success then
         local n = tonumber(res.SoldCount) or 0
@@ -2239,6 +2291,9 @@ local function stepHarvest()
     -- into the pack), stop if the pack is genuinely full, then sell the whole batch at once.
     for _, h in ipairs(list) do
         if not (S.autoFarm or S.autoHarvest) then break end
+        if picked(S.onlyHarvest) and not S.onlyHarvest[h.name] then continue end
+        if S.dontHarvest[h.name] then continue end
+        if S.neverSellFruit[h.name] or S.neverSellMut[h.mutation] then continue end
         if fruitCount() >= cap - 1 then break end
         pcall(function() fireFast("Garden.CollectFruit", h.plantId, h.fruitId) end)
         Stats.harvested += 1
@@ -2389,7 +2444,9 @@ loopOn(function() return S.autoEquipPets end, 8, function()
     local cap = tonumber(LocalPlayer:GetAttribute("MaxEquippedPets")) or 3
     local have = equippedPetCount()
     if have >= cap then return end
-    for _, nm in ipairs(ownedPetNames()) do
+    local order = {}
+    if picked(S.equipPets) then for nm in pairs(S.equipPets) do order[#order + 1] = nm end else order = ownedPetNames() end
+    for _, nm in ipairs(order) do
         if not S.autoEquipPets or have >= cap then break end
         if equipPetByName(nm) then have += 1 end
         task.wait(0.35)
@@ -2508,6 +2565,18 @@ loopOn(function() return S.autoMail end, 30, function()
             else
                 fire("Mailbox.Claim", id); task.wait(0.3)
             end
+        end
+    end
+end)
+loopOn(function() return S.autoMail and S.mailSendTo ~= "" and type(S.mailSend) == "table" and #S.mailSend > 0 end, function() return math.max(10, S.mailSendEvery or 45) end, function()
+    -- Guarded best-effort mail send. If game args differ, it fails silently/logs instead of spamming.
+    for _, item in ipairs(S.mailSend) do
+        if S.mailSendTo == "" then break end
+        local itemName = type(item) == "table" and item.Item or item
+        local count = type(item) == "table" and (tonumber(item.Count) or 1) or 1
+        if type(itemName) == "string" and itemName ~= "" then
+            local ok = fire("Mailbox.Send", S.mailSendTo, itemName, count)
+            if ok then Stats.Mailed = (Stats.Mailed or 0) + count; task.wait(0.5) else warn("[Mail] Send failed/unsupported for " .. itemName) end
         end
     end
 end)
@@ -2658,7 +2727,7 @@ function applyUltraPerformance(on)
     warn("[Performance] Ultra Performance ON: 3D disabled/hidden")
 end
 
-local function applyFpsBoost(on)
+function applyFpsBoost(on)
     if on and not _fpsApplied then
         _fpsApplied = true
         pcall(function()
@@ -2761,6 +2830,17 @@ local function applyGuiPreset(name)
     pcall(function() ui:Notify("Preset", currentPreset, 2.5) end)
 end
 
+local function copyDebugInfo()
+    local result = string.format("[GAG DEBUG]\nPreset=%s\nFarm=%s\nFruit=%s/%s\nStats=bought:%s planted:%s harvested:%s sold:%s earned:%s\nAutoHop=%s AllowServerHop=%s\nUltra=%s",
+        tostring(currentPreset), tostring(S.autoFarm or S.autoBuy or S.autoPlant or S.autoHarvest or S.autoSell), tostring(fruitCount()), tostring(maxFruitCap()),
+        tostring(Stats.bought), tostring(Stats.planted), tostring(Stats.harvested), tostring(Stats.sold), tostring(Stats.earned),
+        tostring(S.autoHop), tostring(S.allowServerHop), tostring(S.ultraPerformance))
+    local ok = false
+    if setclipboard then ok = pcall(setclipboard, result) elseif toclipboard then ok = pcall(toclipboard, result) end
+    warn(ok and "[Debug] Copied debug info" or result)
+    return result
+end
+
 -- ---- DASHBOARD ----
 local secDash = dashboardTab:Section("Quick Status")
 local dashPreset = secDash:Label("Preset: Manual")
@@ -2775,11 +2855,19 @@ secQuick:Button("Balanced — umum", function() applyGuiPreset("Balanced") end)
 secQuick:Button("Rich — akun besar", function() applyGuiPreset("Rich") end)
 secQuick:Button("Alt → Main", function() applyGuiPreset("AltToMain") end)
 secQuick:Button("Low PC / HP berat", function() applyGuiPreset("LowPC") end)
+secQuick:Button("AFK Farm Mode", function()
+    applyGuiPreset("Balanced")
+    S.autoHop = false; S.allowServerHop = false; S.antiAfk = true; S.fpsBoost = true
+    pcall(function() applyFpsBoost(true) end)
+    pcall(function() applyUltraPerformance(true) end)
+    warn("[Preset] AFK Farm Mode ON")
+end)
 
 local secDashTips = dashboardTab:Section("Alur Pakai")
 secDashTips:Label("1) Pilih preset di atas, atau tetap Manual")
 secDashTips:Label("2) Atur detail di tab Farm / Boosts / Pets")
 secDashTips:Label("3) Server-hop = rejoin, biarkan OFF kalau AFK")
+secDashTips:Button("Copy Debug Info", copyDebugInfo)
 
 -- ---- FARM ----
 local secStatus = farmTab:Section("Status")
@@ -2819,10 +2907,12 @@ secSpr:Slider("Water interval (s)", 8, 2, 60, function(v) S.waterInterval = v en
 
 local secSkill = boostsTab:Section("Skill points")
 secSkill:Dropdown("Stats to level", { "BaseSpeed", "BaseJump", "ShovelPower", "MaxBackpack" }, {}, function(sel) pickMulti(sel, S.skillStats) end)
+secSkill:Button("Auto Upgrade Inventory", function() S.skillStats = { MaxBackpack = true }; S.autoSkill = true; warn("[Skill] Auto Upgrade Inventory ON") end)
 secSkill:Toggle("Auto-Spend skill points", false, function(v) S.autoSkill = v end)
 
 -- ---- PETS ----
 local secPet = petsTab:Section("Pets")
+secPet:Dropdown("Pets to equip priority", ownedPetNames(), {}, function(sel) pickMulti(sel, S.equipPets) end)
 secPet:Toggle("Auto-Equip pets (to slot cap)", false, function(v) S.autoEquipPets = v end)
 secPet:Toggle("Auto-Buy pet slots", false, function(v) S.autoPetSlot = v end)
 secPet:Toggle("Auto-Buy world pets (walk up & buy)", false, function(v) S.autoBuyPets = v end)
