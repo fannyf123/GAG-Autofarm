@@ -2707,7 +2707,7 @@ secInfo:Label("Hotkey: Left Ctrl toggles UI")
 task.defer(function()
     task.wait(0.25)
     local env = type(getgenv) == "function" and getgenv() or _G
-    gagApplyConfig(env.GAGConfig or _G.GAGConfig or { Preset = "Balanced" })
+    gagApplyConfig(env.GAGConfig or _G.GAGConfig or {})
 end)
 
 
