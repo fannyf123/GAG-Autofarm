@@ -702,9 +702,11 @@ function KrassUI.new(config)
 		self:SetVisible(true)
 	end)
 
-	self:_connect(Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"), function()
-		self:ApplyResponsiveLayout(false)
-	end)
+	if Workspace.CurrentCamera then
+		self:_connect(Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"), function()
+			self:ApplyResponsiveLayout(false)
+		end)
+	end
 
 	holder.Visible = true
 	holder.Position = UDim2.fromScale(0.5, 0.5)
@@ -2546,7 +2548,7 @@ local function equippedPetNames(limit)
         for _, item in pairs(list) do
             local name = nil
             if type(item) == "table" then name = item.Name or item.PetName or item.DisplayName or item.Type or item.Id end
-            if typeof and typeof(item) == "Instance" then name = item:GetAttribute("PetName") or item.Name end
+            if type(typeof) == "function" and typeof(item) == "Instance" then name = item:GetAttribute("PetName") or item.Name end
             name = name or tostring(item)
             if name and name ~= "" and not seen[name] then seen[name] = true; names[#names + 1] = name end
             if #names >= limit then break end
