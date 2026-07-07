@@ -64,6 +64,20 @@ local THEME_PRESETS = {
 		DarkText = Color3.fromRGB(5, 7, 10),
 		Shadow = Color3.fromRGB(0, 0, 0),
 	},
+	Garden = {
+		Background = Color3.fromRGB(10, 16, 12),
+		Panel = Color3.fromRGB(18, 28, 21),
+		Panel2 = Color3.fromRGB(25, 39, 29),
+		Panel3 = Color3.fromRGB(34, 53, 39),
+		Text = Color3.fromRGB(238, 245, 232),
+		Muted = Color3.fromRGB(158, 178, 154),
+		Accent = Color3.fromRGB(138, 220, 92),
+		Accent2 = Color3.fromRGB(255, 204, 92),
+		Danger = Color3.fromRGB(238, 88, 74),
+		Stroke = Color3.fromRGB(62, 83, 61),
+		DarkText = Color3.fromRGB(8, 18, 10),
+		Shadow = Color3.fromRGB(0, 0, 0),
+	},
 	Pink = {
 		Background = Color3.fromRGB(18, 10, 18),
 		Panel = Color3.fromRGB(29, 17, 31),
@@ -496,9 +510,25 @@ function KrassUI.new(config)
 	title.ZIndex = 4
 
 	local subtitle = makeLabel(topbar, config.Subtitle or "TYCOON AUTOFARM", 11, theme.Muted, false)
-	subtitle.Position = UDim2.fromOffset(18, 29)
-	subtitle.Size = UDim2.new(1, -160, 0, 18)
+	subtitle.Position = UDim2.fromOffset(58, 29)
+	subtitle.Size = UDim2.new(1, -200, 0, 18)
 	subtitle.ZIndex = 4
+
+	local logoBadge = new("Frame", {
+		BackgroundColor3 = theme.Panel2,
+		BorderSizePixel = 0,
+		Parent = topbar,
+		Position = UDim2.fromOffset(16, 11),
+		Size = UDim2.fromOffset(34, 34),
+		ZIndex = 5,
+	})
+	corner(10).Parent = logoBadge
+	stroke(theme.Accent, 1, 0.25).Parent = logoBadge
+	gradient(logoBadge, theme.Panel2, theme.Panel3, 45)
+	local logoText = makeLabel(logoBadge, config.LogoText or "G", 18, theme.Accent, true)
+	logoText.Size = UDim2.fromScale(1, 1)
+	logoText.TextXAlignment = Enum.TextXAlignment.Center
+	logoText.ZIndex = 6
 
 	local close = makeButton(topbar, "X", theme.Panel2, theme.Muted)
 	close.Position = UDim2.new(1, -44, 0, 11)
@@ -600,6 +630,8 @@ function KrassUI.new(config)
 		Topbar = topbar,
 		Title = title,
 		Subtitle = subtitle,
+		LogoBadge = logoBadge,
+		LogoText = logoText,
 		CloseButton = close,
 		MinimizeButton = minimize,
 		Sidebar = sidebar,
@@ -670,6 +702,10 @@ function KrassUI.new(config)
 		self:SetVisible(true)
 	end)
 
+	self:_connect(Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"), function()
+		self:ApplyResponsiveLayout(false)
+	end)
+
 	holder.Visible = true
 	holder.Position = UDim2.fromScale(0.5, 0.5)
 	root.Rotation = -4
@@ -705,15 +741,15 @@ function Window:ApplyResponsiveLayout(skipAnimation)
 	local viewport = self:GetViewportSize()
 	local isTouch = UserInputService.TouchEnabled
 	local compact = viewport.X < 760 or viewport.Y < 540 or (isTouch and viewport.X < 930)
-	local sideWidth = compact and 118 or 166
-	local windowWidth = compact and math.min(690, math.max(290, viewport.X - 22)) or self.BaseSize.X.Offset
-	local windowHeight = compact and math.min(520, math.max(340, viewport.Y - 72)) or self.BaseSize.Y.Offset
-	local topbarHeight = compact and 52 or 54
+	local sideWidth = compact and 106 or 166
+	local windowWidth = compact and math.min(760, math.max(320, math.floor(viewport.X * 0.94))) or self.BaseSize.X.Offset
+	local windowHeight = compact and math.min(590, math.max(380, math.floor(viewport.Y * 0.86))) or self.BaseSize.Y.Offset
+	local topbarHeight = compact and 58 or 58
 	local contentTop = topbarHeight + 3
-	local sidebarPadding = compact and 8 or 12
-	local tabHeight = compact and 36 or 40
+	local sidebarPadding = compact and 7 or 12
+	local tabHeight = compact and 44 or 42
 	local tabTextSize = compact and 11 or 13
-	local pagePadding = compact and 9 or 14
+	local pagePadding = compact and 10 or 14
 	local titleSize = compact and 15 or 17
 	local subtitleSize = compact and 10 or 11
 
@@ -737,11 +773,17 @@ function Window:ApplyResponsiveLayout(skipAnimation)
 		Size = UDim2.fromOffset(windowWidth, windowHeight),
 	}, 0.2)
 	self.Topbar.Size = UDim2.new(1, 0, 0, topbarHeight)
-	self.Title.Position = UDim2.fromOffset(compact and 12 or 18, compact and 6 or 7)
-	self.Title.Size = UDim2.new(1, compact and -112 or -160, 0, 23)
+	local logoLeft = compact and 10 or 16
+	local logoSize = compact and 36 or 34
+	self.LogoBadge.Position = UDim2.fromOffset(logoLeft, compact and 11 or 12)
+	self.LogoBadge.Size = UDim2.fromOffset(logoSize, logoSize)
+	self.LogoText.TextSize = compact and 18 or 18
+	local titleLeft = logoLeft + logoSize + (compact and 8 or 10)
+	self.Title.Position = UDim2.fromOffset(titleLeft, compact and 7 or 8)
+	self.Title.Size = UDim2.new(1, compact and -128 or -178, 0, 23)
 	self.Title.TextSize = titleSize
-	self.Subtitle.Position = UDim2.fromOffset(compact and 12 or 18, compact and 28 or 29)
-	self.Subtitle.Size = UDim2.new(1, compact and -112 or -160, 0, 18)
+	self.Subtitle.Position = UDim2.fromOffset(titleLeft, compact and 31 or 31)
+	self.Subtitle.Size = UDim2.new(1, compact and -128 or -178, 0, 18)
 	self.Subtitle.TextSize = subtitleSize
 
 	local buttonSize = compact and 34 or 32
@@ -776,7 +818,7 @@ function Window:ApplyResponsiveLayout(skipAnimation)
 		tab.Label.TextSize = tabTextSize
 		tab.Page.Position = UDim2.fromOffset(0, 0)
 		tab.Page.Size = UDim2.fromScale(1, 1)
-		tab.Page.ScrollBarThickness = compact and 4 or 3
+		tab.Page.ScrollBarThickness = compact and 7 or 4
 		local pad = tab.Page:FindFirstChildOfClass("UIPadding")
 		if pad then
 			pad.PaddingBottom = UDim.new(0, pagePadding)
@@ -1205,7 +1247,8 @@ end
 
 function Section:Button(text, callback)
 	local theme = self.Window.Theme
-	local row, rowStroke = self:_baseRow(44)
+	local rowHeight = self.Window.IsCompact and 52 or 44
+	local row, rowStroke = self:_baseRow(rowHeight)
 
 	local label = makeLabel(row, text, 13, theme.Text, true)
 	label.Position = UDim2.fromOffset(12, 0)
@@ -1214,7 +1257,7 @@ function Section:Button(text, callback)
 
 	local arrow = makeLabel(row, ">", 15, theme.Muted, true)
 	arrow.Position = UDim2.new(1, -32, 0, 0)
-	arrow.Size = UDim2.fromOffset(20, 44)
+	arrow.Size = UDim2.fromOffset(20, rowHeight)
 	arrow.TextXAlignment = Enum.TextXAlignment.Center
 	arrow.ZIndex = 7
 
@@ -1241,19 +1284,20 @@ end
 function Section:Toggle(text, default, callback)
 	local theme = self.Window.Theme
 	local enabled = default == true
-	local row, rowStroke = self:_baseRow(46)
+	local rowHeight = self.Window.IsCompact and 54 or 46
+	local row, rowStroke = self:_baseRow(rowHeight)
 
 	local label = makeLabel(row, text, 13, theme.Text, true)
 	label.Position = UDim2.fromOffset(12, 0)
-	label.Size = UDim2.new(1, -82, 1, 0)
+	label.Size = UDim2.new(1, -92, 1, 0)
 	label.ZIndex = 7
 
 	local switch = new("Frame", {
 		BackgroundColor3 = enabled and theme.Accent or theme.Panel3,
 		BorderSizePixel = 0,
 		Parent = row,
-		Position = UDim2.new(1, -58, 0.5, -12),
-		Size = UDim2.fromOffset(46, 24),
+		Position = UDim2.new(1, -68, 0.5, -15),
+		Size = UDim2.fromOffset(56, 30),
 		ZIndex = 7,
 	})
 	corner(999).Parent = switch
@@ -1264,8 +1308,8 @@ function Section:Toggle(text, default, callback)
 		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 		BorderSizePixel = 0,
 		Parent = switch,
-		Position = enabled and UDim2.new(1, -21, 0, 3) or UDim2.fromOffset(3, 3),
-		Size = UDim2.fromOffset(18, 18),
+		Position = enabled and UDim2.new(1, -27, 0, 4) or UDim2.fromOffset(4, 4),
+		Size = UDim2.fromOffset(22, 22),
 		ZIndex = 8,
 	})
 	corner(999).Parent = knob
@@ -1282,7 +1326,7 @@ function Section:Toggle(text, default, callback)
 		}, 0.16)
 		switchGradient.Enabled = enabled
 		tween(knob, {
-			Position = enabled and UDim2.new(1, -21, 0, 3) or UDim2.fromOffset(3, 3),
+			Position = enabled and UDim2.new(1, -27, 0, 4) or UDim2.fromOffset(4, 4),
 		}, 0.25, Enum.EasingStyle.Back)
 		tween(rowStroke, {
 			Color = enabled and theme.Accent or theme.Stroke,
@@ -1318,7 +1362,8 @@ end
 
 function Section:Textbox(text, placeholder, callback)
 	local theme = self.Window.Theme
-	local row, rowStroke = self:_baseRow(46)
+	local rowHeight = self.Window.IsCompact and 56 or 46
+	local row, rowStroke = self:_baseRow(rowHeight)
 
 	local label = makeLabel(row, text, 13, theme.Text, true)
 	label.Position = UDim2.fromOffset(12, 0)
@@ -1333,8 +1378,8 @@ function Section:Textbox(text, placeholder, callback)
 		PlaceholderColor3 = theme.Muted,
 		PlaceholderText = placeholder or "",
 		Parent = row,
-		Position = UDim2.new(1, -78, 0.5, -15),
-		Size = UDim2.fromOffset(66, 30),
+		Position = UDim2.new(1, -108, 0.5, -17),
+		Size = UDim2.fromOffset(96, 34),
 		Text = "",
 		TextColor3 = theme.Text,
 		TextSize = 13,
@@ -1376,7 +1421,8 @@ function Section:Slider(text, default, min, max, callback)
 	end
 	precision = math.max(decimalPlaces(default), decimalPlaces(min), decimalPlaces(max))
 	
-	local row, rowStroke = self:_baseRow(46)
+	local rowHeight = self.Window.IsCompact and 58 or 46
+	local row, rowStroke = self:_baseRow(rowHeight)
 
 	local label = makeLabel(row, text, 13, theme.Text, true)
 	label.Position = UDim2.fromOffset(12, 0)
@@ -1393,8 +1439,8 @@ function Section:Slider(text, default, min, max, callback)
 		BackgroundColor3 = theme.Panel3,
 		BorderSizePixel = 0,
 		Parent = row,
-		Position = UDim2.fromOffset(12, 32),
-		Size = UDim2.new(1, -24, 0, 6),
+		Position = UDim2.fromOffset(12, 38),
+		Size = UDim2.new(1, -24, 0, 8),
 		ZIndex = 7,
 	})
 	corner(3).Parent = sliderFrame
@@ -1414,7 +1460,7 @@ function Section:Slider(text, default, min, max, callback)
 		BorderSizePixel = 0,
 		Parent = sliderFrame,
 		Position = UDim2.fromScale((value - min) / (max - min), 0.5),
-		Size = UDim2.fromOffset(14, 14),
+		Size = UDim2.fromOffset(18, 18),
 		ZIndex = 9,
 	})
 	corner(999).Parent = knob
@@ -1506,7 +1552,8 @@ function Section:Dropdown(text, options, default, callback)
 	local compact = self.Window.IsCompact
 	local selected = (type(default) == "string" and default ~= "") and default or options[1] or ""
 	local open = false
-	local row, rowStroke = self:_baseRow(46)
+	local rowHeight = self.Window.IsCompact and 56 or 46
+	local row, rowStroke = self:_baseRow(rowHeight)
 	row.ClipsDescendants = true
 
 	local label = makeLabel(row, text, 13, theme.Text, true)
@@ -1531,7 +1578,7 @@ function Section:Dropdown(text, options, default, callback)
 		BackgroundTransparency = 1,
 		Parent = row,
 		Position = UDim2.fromOffset(8, 48),
-		Size = UDim2.new(1, -16, 0, math.max(1, #options) * 34),
+		Size = UDim2.new(1, -16, 0, math.max(1, #options) * (compact and 42 or 34)),
 		ZIndex = 7,
 	})
 	list(6).Parent = holder
@@ -1546,7 +1593,7 @@ function Section:Dropdown(text, options, default, callback)
 
 	for _, option in ipairs(options) do
 		local optionButton = makeButton(holder, option, theme.Panel3, theme.Text)
-		optionButton.Size = UDim2.new(1, 0, 0, 30)
+		optionButton.Size = UDim2.new(1, 0, 0, compact and 38 or 30)
 		optionButton.TextXAlignment = Enum.TextXAlignment.Left
 		optionButton.ZIndex = 8
 		corner(8).Parent = optionButton
@@ -1564,19 +1611,19 @@ function Section:Dropdown(text, options, default, callback)
 		optionButton.MouseButton1Click:Connect(function()
 			choose(option)
 			open = false
-			tween(row, { Size = UDim2.new(1, 0, 0, 46) }, 0.2)
+			tween(row, { Size = UDim2.new(1, 0, 0, rowHeight) }, 0.2)
 			tween(arrow, { Rotation = 0 }, 0.2)
 		end)
 	end
 
 	local hit = makeButton(row, "", theme.Panel2, theme.Text)
 	hit.BackgroundTransparency = 1
-	hit.Size = UDim2.new(1, 0, 0, 46)
+	hit.Size = UDim2.new(1, 0, 0, rowHeight)
 	hit.ZIndex = 9
 
 	pressable(hit, row, rowStroke, theme, function()
 		open = not open
-		local targetHeight = open and (54 + math.max(1, #options) * 36) or 46
+		local targetHeight = open and (rowHeight + 8 + math.max(1, #options) * (compact and 44 or 36)) or rowHeight
 		tween(row, { Size = UDim2.new(1, 0, 0, targetHeight) }, 0.22, Enum.EasingStyle.Quint)
 		tween(arrow, { Rotation = open and 90 or 0 }, 0.22)
 	end)
@@ -2005,7 +2052,8 @@ local S = {
     killed = false,
 }
 local Stats = { bought = 0, planted = 0, harvested = 0, sold = 0, earned = 0,
-    sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock(), state = "BOOT", lastAction = "loading" }
+    sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock(), state = "BOOT", lastAction = "loading",
+    webhookLastOk = 0, webhookNextAt = 0, webhookLastError = "never sent" }
 local WebhookStats = { bought = 0, planted = 0, harvested = 0, sold = 0, opened = 0, stolen = 0 }
 local currentPreset = "Manual"
 
@@ -2490,6 +2538,30 @@ local function equippedPetCount()
     end
     return 0
 end
+local function equippedPetNames(limit)
+    limit = limit or 5
+    local ok, list = fire("Pets.GetEquippedPets")
+    local names, seen = {}, {}
+    if ok and type(list) == "table" then
+        for _, item in pairs(list) do
+            local name = nil
+            if type(item) == "table" then name = item.Name or item.PetName or item.DisplayName or item.Type or item.Id end
+            if typeof and typeof(item) == "Instance" then name = item:GetAttribute("PetName") or item.Name end
+            name = name or tostring(item)
+            if name and name ~= "" and not seen[name] then seen[name] = true; names[#names + 1] = name end
+            if #names >= limit then break end
+        end
+    end
+    if #names == 0 then
+        for _, t in ipairs(toolsByAttr("PetId")) do
+            local name = t:GetAttribute("PetName") or t.Name
+            if name and not seen[name] then seen[name] = true; names[#names + 1] = name end
+            if #names >= limit then break end
+        end
+    end
+    table.sort(names)
+    return #names > 0 and table.concat(names, ", ") or "none detected"
+end
 local function petToolsByName(name)
     local out = {}
     for _, t in ipairs(toolsByAttr("PetId")) do
@@ -2959,7 +3031,13 @@ local function sendWebhook(isTest)
         }, footer = { text = "WalkyHub · GAG2" },
     } } }
     local good, code = webhookPost(payload, false)
-    if isTest then warn("[Webhook] " .. (good and "Test sent ✅" or ("Failed (" .. tostring(code) .. ")"))) end
+    if good then
+        Stats.webhookLastOk = os.clock()
+        Stats.webhookLastError = "OK"
+    else
+        Stats.webhookLastError = code and ("HTTP " .. tostring(code)) or "request failed / URL missing"
+    end
+    if isTest then warn("[Webhook] " .. (good and "Test sent OK" or ("Failed (" .. tostring(code) .. ")"))) end
     return good
 end
 local _lastWebhookEventAt = {}
@@ -2983,14 +3061,21 @@ task.spawn(function()
     while not S.killed do
         if S.webhookEnabled and S.webhookReport then
             local interval = math.max(30, tonumber(S.webhookInterval) or 300)
-            if lastInterval ~= interval then lastInterval = interval; lastSent = os.clock() end
+            if lastInterval ~= interval then
+                lastInterval = interval
+                lastSent = os.clock()
+                Stats.webhookNextAt = lastSent + interval
+            end
+            Stats.webhookNextAt = lastSent + interval
             if os.clock() - lastSent >= interval then
                 lastSent = os.clock()
+                Stats.webhookNextAt = lastSent + interval
                 sendWebhook(false)
             end
             task.wait(1)
         else
             lastSent = os.clock()
+            Stats.webhookNextAt = 0
             task.wait(1)
         end
     end
@@ -3032,11 +3117,10 @@ end)
 -- // ============================================================ \\ --
 -- Create UI with KrassUI
 local ui = KrassUI.new({
-    Name = "Grow a Garden 2",
-    Subtitle = "WalkyHub | Full Auto",
-    Theme = "Black",
-    Accent = Color3.fromRGB(145, 160, 255),
-    Accent2 = Color3.fromRGB(95, 105, 255),
+    Name = "GAG AUTO",
+    Subtitle = "Smart Farm Controller | Delta Mobile",
+    LogoText = "G",
+    Theme = "Garden",
     Size = UDim2.fromOffset(860, 620),
     ToggleKey = Enum.KeyCode.LeftControl,
 })
@@ -3090,25 +3174,21 @@ local function copyDebugInfo()
 end
 
 -- ---- DASHBOARD ----
-local secDash = dashboardTab:Section("Quick Status")
-local dashPreset = secDash:Label("Preset: Manual")
-local dashFarm = secDash:Label("Farm: OFF")
-local dashState = secDash:Label("State: IDLE")
-local dashCash = secDash:Label("Sheckles: ...")
-local dashFruit = secDash:Label("Fruit: ...")
-local dashPlants = secDash:Label("Plants: ...")
-local dashSettings = secDash:Label("Settings: ...")
-local dashPets = secDash:Label("Pets: ...")
-local dashStats = secDash:Label("bought 0 | planted 0 | harvested 0 | sold 0")
+local secHero = dashboardTab:Section("GAG AUTO - Mobile Control")
+secHero:Label("Smart farming, pet effects, webhook monitor")
+local dashPreset = secHero:Label("Preset: Manual")
+local dashFarm = secHero:Label("Status: OFF")
+local dashState = secHero:Label("State: IDLE")
+local dashCash = secHero:Label("Wallet: ...")
+local dashFruit = secHero:Label("Fruit: ...")
+local dashPlants = secHero:Label("Garden: ...")
 
-local secQuick = dashboardTab:Section("Quick Presets")
-secQuick:Button("Manual / Stop All", function() applyGuiPreset("Manual") end)
-secQuick:Button("Starter — akun baru", function() applyGuiPreset("Starter") end)
-secQuick:Button("Balanced — umum", function() applyGuiPreset("Balanced") end)
-secQuick:Button("Rich — akun besar", function() applyGuiPreset("Rich") end)
-secQuick:Button("Alt → Main", function() applyGuiPreset("AltToMain") end)
-secQuick:Button("Low PC / HP berat", function() applyGuiPreset("LowPC") end)
-secQuick:Button("AFK Farm Mode", function()
+local secQuick = dashboardTab:Section("One Tap Presets")
+secQuick:Button("STOP ALL / Manual", function() applyGuiPreset("Manual") end)
+secQuick:Button("Starter Farm - akun baru", function() applyGuiPreset("Starter") end)
+secQuick:Button("Balanced Farm - rekomendasi", function() applyGuiPreset("Balanced") end)
+secQuick:Button("Rich Farm - high value", function() applyGuiPreset("Rich") end)
+secQuick:Button("AFK Low Performance", function()
     applyGuiPreset("Balanced")
     S.autoHop = false; S.allowServerHop = false; S.antiAfk = true; S.fpsBoost = true
     pcall(function() applyFpsBoost(true) end)
@@ -3116,11 +3196,27 @@ secQuick:Button("AFK Farm Mode", function()
     warn("[Preset] AFK Farm Mode ON")
 end)
 
-local secDashTips = dashboardTab:Section("Alur Pakai")
-secDashTips:Label("1) Pilih preset di atas, atau tetap Manual")
-secDashTips:Label("2) Atur detail di tab Farm / Boosts / Pets")
-secDashTips:Label("3) Server-hop = rejoin, biarkan OFF kalau AFK")
-secDashTips:Button("Copy Debug Info", copyDebugInfo)
+local secMini = dashboardTab:Section("Live Settings")
+local dashSettings = secMini:Label("Seeds: ...")
+local dashPets = secMini:Label("Pets: ...")
+local dashWebhook = secMini:Label("Webhook: ...")
+local dashWebhookDetail = secMini:Label("Webhook detail: ...")
+local dashStats = secMini:Label("Session: bought 0 | planted 0 | harvested 0 | sold 0")
+secMini:Button("Test Webhook", function() task.spawn(function() sendWebhook(true) end) end)
+secMini:Button("Copy Debug Info", copyDebugInfo)
+
+local secGardenDash = dashboardTab:Section("Garden Scan")
+local dashGardenScan = secGardenDash:Label("Scan: ...")
+local secPetDash = dashboardTab:Section("Pet Effects Dashboard")
+local dashPetEquipped = secPetDash:Label("Equipped: ...")
+local dashPetTargets = secPetDash:Label("Targets: ...")
+local dashPetHunt = secPetDash:Label("World hunt: ...")
+
+local secDashTips = dashboardTab:Section("Cara Pakai Cepat")
+secDashTips:Label("1) Pilih preset besar di atas")
+secDashTips:Label("2) Farm untuk seed/tanam/panen")
+secDashTips:Label("3) Pets: Equip effect terpisah dari World Pet Buy")
+secDashTips:Label("4) Webhook ada di Settings, report otomatis sesuai interval")
 
 -- ---- FARM ----
 local secStatus = farmTab:Section("Status")
@@ -3164,15 +3260,19 @@ secSkill:Button("Auto Upgrade Inventory", function() S.skillStats = { MaxBackpac
 secSkill:Toggle("Auto-Spend skill points", false, function(v) S.autoSkill = v end)
 
 -- ---- PETS ----
-local secPet = petsTab:Section("Pets")
-secPet:Dropdown("Pet to equip priority", ownedPetNames(), "", function(sel) pickMulti(sel, S.equipPets) end)
-secPet:Dropdown("World pet buy targets", PET_NAMES, {}, function(sel) pickMulti(sel, S.buyPets) end)
-secPet:Toggle("Auto-Equip pets (to slot cap)", false, function(v) S.autoEquipPets = v end)
+local secPet = petsTab:Section("Pet Effects / Equip")
+secPet:Dropdown("Equip priority (owned pets)", ownedPetNames(), "", function(sel) pickMulti(sel, S.equipPets) end)
+secPet:Toggle("Auto-Equip pets for effects", false, function(v) S.autoEquipPets = v end)
 secPet:Toggle("Auto-Buy pet slots", false, function(v) S.autoPetSlot = v end)
-secPet:Toggle("Auto-Buy world pets (walk up & buy)", false, function(v) S.autoBuyPets = v end)
-secPet:Slider("Max pet price (Sheckles)", 25000, 1000, 1000000, function(v) S.maxPetPrice = v end)
-secPet:Toggle("Teleport to pet (needed to buy)", true, function(v) S.petTeleport = v end)
-secPet:Slider("Pet buy interval (s)", 5, 2, 60, function(v) S.petBuyInterval = v end)
+secPet:Label("Equip pet = buff/effect, tidak teleport.")
+
+local secPetHunt = petsTab:Section("World Pet Buy / Hunt")
+secPetHunt:Dropdown("World pet buy targets", PET_NAMES, {}, function(sel) pickMulti(sel, S.buyPets) end)
+secPetHunt:Toggle("Auto-Buy world pets", false, function(v) S.autoBuyPets = v end)
+secPetHunt:Slider("Max pet price (Sheckles)", 25000, 1000, 1000000, function(v) S.maxPetPrice = v end)
+secPetHunt:Toggle("TP only after valid target", true, function(v) S.petTeleport = v end)
+secPetHunt:Slider("Pet scan interval (s)", 5, 2, 60, function(v) S.petBuyInterval = v end)
+secPetHunt:Label("Scan semua pet dulu, pilih 1 target valid, lalu TP sekali.")
 
 local secPetSell = petsTab:Section("Sell pets")
 secPetSell:Dropdown("Pets to sell", ownedPetNames(), {}, function(sel) pickMulti(sel, S.sellPets) end)
@@ -3228,19 +3328,20 @@ local secPreset = settingsTab:Section("Preset Farm")
 secPreset:Label("Default Manual: pilih preset kalau mau auto-set farm")
 secPreset:Dropdown("Select preset", { "Manual", "Starter", "Balanced", "Rich", "AltToMain", "LowPC" }, "Manual", applyGuiPreset)
 
-local secPerf = settingsTab:Section("Performance & Interface")
+local secPerf = settingsTab:Section("Performance & Player Overlay")
 secPerf:Toggle("FPS Boost (low graphics)", false, function(v) S.fpsBoost = v; applyFpsBoost(v) end)
 secPerf:Toggle("Ultra Performance (Disable 3D)", false, function(v) applyUltraPerformance(v) end)
 secPerf:Label("Ultra mode bikin layar hitam/minimal tapi GUI tetap jalan")
 secPerf:Button("Unload hub (stops everything)", function() S.killed = true; pcall(function() applyUltraPerformance(false) end); pcall(function() ui:Destroy() end) end)
 
-local secWeb = settingsTab:Section("Discord Webhook")
+local secWeb = settingsTab:Section("Discord Webhook Monitor")
 secWeb:Textbox("Webhook URL", "https://discord.com/api/webhooks/...", function(t) S.webhookUrl = t or "" end)
 secWeb:Toggle("Enable webhook", false, function(v) S.webhookEnabled = v end)
 secWeb:Toggle("Send live action logs", true, function(v) S.webhookEvents = v end)
 secWeb:Toggle("Send interval reports", true, function(v) S.webhookReport = v end)
 secWeb:Slider("Report interval (min)", 5, 1, 60, function(v) S.webhookInterval = math.max(30, v * 60) end)
 secWeb:Button("Send test report", function() task.spawn(function() sendWebhook(true) end) end)
+secWeb:Label("Report berisi wallet, runtime, settings, dan scan ladang.")
 
 local secInfo = settingsTab:Section("Info")
 secInfo:Label("Grow a Garden 2 · WalkyHub")
@@ -3279,15 +3380,34 @@ task.spawn(function()
         pcall(function() plotLabel:Set("Plot: " .. (p and p.Name or "?")) end)
         pcall(function() cashLabel:Set(cashText) end)
         pcall(function() statLabel:Set(statText .. " | State: " .. tostring(Stats.state or "IDLE")) end)
+        local webhookStatus = "OFF"
+        local webhookDetail = "Last: never | Next: off | Error: " .. tostring(Stats.webhookLastError or "-")
+        if S.webhookEnabled then
+            local ready = webhookReady(true)
+            local interval = math.max(30, tonumber(S.webhookInterval) or 300)
+            local nextIn = Stats.webhookNextAt and Stats.webhookNextAt > 0 and math.max(0, math.floor(Stats.webhookNextAt - os.clock())) or interval
+            local lastText = Stats.webhookLastOk and Stats.webhookLastOk > 0 and (hms(os.clock() - Stats.webhookLastOk) .. " ago") or "never"
+            webhookStatus = ready and ("ON | every " .. hms(interval)) or "ON | URL/HTTP error"
+            webhookDetail = "Last: " .. lastText .. " | Next: " .. hms(nextIn) .. " | Error: " .. tostring(Stats.webhookLastError or "-")
+        end
+        local gardenText = gardenScanSummary(6)
+        local petEquipped = equippedPetNames(5) .. " (" .. tostring(equippedPetCount()) .. "/" .. tostring(tonumber(LocalPlayer:GetAttribute("MaxEquippedPets")) or 3) .. ")"
+        local petHuntText = "World: " .. tostring(S.autoBuyPets) .. " | TP: " .. tostring(S.petTeleport) .. " | max " .. fmt(S.maxPetPrice)
         pcall(function() dashPreset:Set("Preset: " .. tostring(currentPreset)) end)
-        pcall(function() dashFarm:Set("Farm: " .. (farmOn and "ON" or "OFF")) end)
+        pcall(function() dashFarm:Set("Status: " .. (farmOn and "RUNNING" or "IDLE") .. " | Ultra: " .. tostring(S.ultraPerformance)) end)
         pcall(function() dashState:Set("State: " .. tostring(Stats.state or "IDLE") .. " | Last: " .. tostring(Stats.lastAction or "-")) end)
-        pcall(function() dashCash:Set(cashText) end)
+        pcall(function() dashCash:Set("Wallet: " .. cashText) end)
         pcall(function() dashFruit:Set("Fruit: " .. tostring(fruitCount()) .. "/" .. tostring(maxFruitCap())) end)
-        pcall(function() dashPlants:Set("Plants: " .. tostring(totalPlants) .. " | Plot: " .. (p and p.Name or "?")) end)
-        pcall(function() dashSettings:Set("BuySeed: " .. safeJoinMap(S.buySeeds) .. " | Plant: " .. tostring(S.plantSeed or "Best owned")) end)
-        pcall(function() dashPets:Set("Equip: " .. safeJoinMap(S.equipPets) .. " | Buy: " .. safeJoinMap(S.buyPets) .. " | World: " .. tostring(S.autoBuyPets)) end)
-        pcall(function() dashStats:Set(statText) end)
+        pcall(function() dashPlants:Set("Garden: " .. tostring(totalPlants) .. " plants | Plot: " .. (p and p.Name or "?")) end)
+        pcall(function() dashSettings:Set("Seeds: buy " .. safeJoinMap(S.buySeeds) .. " | plant " .. tostring(S.plantSeed or "Best owned")) end)
+        pcall(function() dashPets:Set("Pets: equip " .. safeJoinMap(S.equipPets) .. " | hunt " .. safeJoinMap(S.buyPets) .. " | world " .. tostring(S.autoBuyPets)) end)
+        pcall(function() dashWebhook:Set("Webhook: " .. webhookStatus) end)
+        pcall(function() dashWebhookDetail:Set(webhookDetail) end)
+        pcall(function() dashStats:Set("Session: " .. statText) end)
+        pcall(function() dashGardenScan:Set(gardenText) end)
+        pcall(function() dashPetEquipped:Set("Equipped: " .. petEquipped) end)
+        pcall(function() dashPetTargets:Set("Priority: " .. safeJoinMap(S.equipPets) .. " | Buy: " .. safeJoinMap(S.buyPets)) end)
+        pcall(function() dashPetHunt:Set(petHuntText) end)
         task.wait(1)
     end
 end)
