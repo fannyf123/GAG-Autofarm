@@ -1190,12 +1190,8 @@ function Section:Label(text)
 	return setmetatable({
 		Instance = row,
 		Label = label,
-		Set = function(selfOrText, maybeText, maybeColor)
-			local nextText, color = selfOrText, maybeText
-			if type(selfOrText) == "table" then
-				nextText, color = maybeText, maybeColor
-			end
-			label.Text = tostring(nextText or "")
+		Set = function(nextText, color)
+			label.Text = nextText
 			if color then
 				label.TextColor3 = color
 			end
@@ -1504,7 +1500,6 @@ end
 function Section:Dropdown(text, options, default, callback)
 	local theme = self.Window.Theme
 	local compact = self.Window.IsCompact
-	options = type(options) == "table" and options or {}
 	local selected = (type(default) == "string" and default ~= "") and default or options[1] or ""
 	local open = false
 	local row, rowStroke = self:_baseRow(46)
@@ -1989,7 +1984,7 @@ local S = {
     autoSkill = false, skillStats = {},          -- {"BaseSpeed"=true,...}
     -- pets
     autoEquipPets = false, equipPets = {}, autoPetSlot = false,
-    autoBuyPets = false, buyPets = {}, maxPetPrice = 25000, petTeleport = true, petBuyInterval = 5,
+    autoBuyPets = false, maxPetPrice = 25000, petTeleport = true, petBuyInterval = 5,
     sellPets = {}, autoSellPets = false,
     -- eggs / crates / packs
     autoEgg = false, autoCrate = false, autoPack = false, openInterval = 4,
@@ -2006,9 +2001,8 @@ local S = {
     killed = false,
 }
 local Stats = { bought = 0, planted = 0, harvested = 0, sold = 0, earned = 0,
-    sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock(), state = "BOOT", lastAction = "loading" }
+    sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock() }
 local WebhookStats = { bought = 0, planted = 0, harvested = 0, sold = 0, opened = 0, stolen = 0 }
-local currentPreset = "Manual"
 
 local _due = {}
 local function due(key, period)
@@ -2149,13 +2143,7 @@ local function gagApplyConfig(raw)
     if m["Auto Expand Plot"] ~= nil then S.autoExpand = m["Auto Expand Plot"] == true end
     if misc["Auto Daily Deal"] ~= nil then S.autoDaily = misc["Auto Daily Deal"] == true end
 
-    if type(pets.Buy) == "table" then
-        gagSetMapFromList(S.buyPets, pets.Buy)
-        S.autoBuyPets = picked(S.buyPets)
-        local max = 0
-        for _, v in pairs(pets.Buy) do if type(v) == "number" and v > max then max = v end end
-        if max > 0 then S.maxPetPrice = 1000000 end
-    end
+    if type(pets.Buy) == "table" then S.autoBuyPets = picked(pets.Buy); local max=0; for _,v in pairs(pets.Buy) do if type(v)=="number" and v>max then max=v end end; if max>0 then S.maxPetPrice=1000000 end end
     if type(pets.Equip) == "table" then gagSetMapFromList(S.equipPets, pets.Equip); S.autoEquipPets = picked(S.equipPets) end
     if pets["Auto Buy Slots"] ~= nil then S.autoPetSlot = pets["Auto Buy Slots"] == true end
 
@@ -2217,7 +2205,7 @@ local SEED_BUY_ACTIONS = { "SeedShop.PurchaseSeed", "SeedShop.BuySeed", "SeedSho
 local _seedBuyWarnAt = {}
 local function buySeedOnce(seedName)
     local ok, used, err = fireFirst(SEED_BUY_ACTIONS, seedName)
-    if ok then Stats.lastAction = "Bought seed " .. tostring(seedName); return true, used end
+    if ok then return true, used end
     local now = os.clock()
     if now - (_seedBuyWarnAt[seedName] or 0) > 20 then
         _seedBuyWarnAt[seedName] = now
@@ -2326,7 +2314,7 @@ local function stepPlant()
                 if not seedAttr then return end
             end
             pcall(function() fire("Plant.PlantSeed", pos, seedAttr, tool) end)
-            Stats.planted += 1; Stats.lastAction = "Planted " .. tostring(seedAttr); occupied[#occupied + 1] = pos
+            Stats.planted += 1; occupied[#occupied + 1] = pos
             task.wait(jitter(0.08, 0.16))   -- > the game's 0.05s client gate
         end
     end
@@ -2342,7 +2330,7 @@ local function sellAllNow()
     local ok, res = fireFast("NPCS.SellAll")
     if ok and type(res) == "table" and res.Success then
         local n = tonumber(res.SoldCount) or 0
-        Stats.sold += n; Stats.earned += tonumber(res.SellPrice) or 0; Stats.lastAction = "Sold " .. tostring(n) .. " fruit"
+        Stats.sold += n; Stats.earned += tonumber(res.SellPrice) or 0
         return n
     end
     return 0
@@ -2373,7 +2361,7 @@ local function stepHarvest()
         if S.neverSellFruit[h.name] or S.neverSellMut[h.mutation] then continue end
         if fruitCount() >= cap - 1 then break end
         pcall(function() fireFast("Garden.CollectFruit", h.plantId, h.fruitId) end)
-        Stats.harvested += 1; Stats.lastAction = "Harvested fruit"
+        Stats.harvested += 1
         if d > 0 then task.wait(d) end
         if sell and fruitCount() >= sellAt then break end
     end
@@ -2398,11 +2386,10 @@ end
 
 task.spawn(function()
     while not S.killed do
-        if S.autoFarm or S.autoBuy     then Stats.state = "BUY_SEED"; pcall(stepBuy) end
-        if S.autoFarm or S.autoPlant   then Stats.state = "PLANT"; pcall(stepPlant) end
-        if S.autoFarm or S.autoExpand  then Stats.state = "EXPAND"; pcall(stepExpand) end
-        if S.autoFarm or S.autoDaily   then Stats.state = "DAILY"; pcall(stepDaily) end
-        Stats.state = "IDLE"
+        if S.autoFarm or S.autoBuy     then pcall(stepBuy) end
+        if S.autoFarm or S.autoPlant   then pcall(stepPlant) end
+        if S.autoFarm or S.autoExpand  then pcall(stepExpand) end
+        if S.autoFarm or S.autoDaily   then pcall(stepDaily) end
         task.wait(0.55)
     end
 end)
@@ -2412,11 +2399,9 @@ end)
 task.spawn(function()
     while not S.killed do
         if S.autoFarm or S.autoHarvest then
-            Stats.state = "HARVEST"
             pcall(stepHarvest)
             task.wait(0.05)
         elseif S.autoSell then
-            Stats.state = "SELL"
             pcall(stepSell)
             task.wait(0.3)
         else
@@ -2491,11 +2476,6 @@ local function equippedPetCount()
     end
     return 0
 end
-local PET_NAMES = {
-    "All valid targets", "Dog", "Golden Lab", "Bunny", "Black Bunny", "Chicken", "Cat", "Deer",
-    "Orange Tabby", "Spotted Deer", "Pig", "Rooster", "Monkey", "Cow", "Silver Monkey",
-    "Sea Otter", "Turtle", "Polar Bear", "Dragonfly", "Raccoon", "Disco Bee", "Butterfly",
-}
 local function petToolsByName(name)
     local out = {}
     for _, t in ipairs(toolsByAttr("PetId")) do
@@ -2549,46 +2529,28 @@ loopOn(function() return S.autoEquipPets end, 12, function()
     if picked(S.equipPets) then for nm in pairs(S.equipPets) do if hasOwnedPet(nm) then order[#order + 1] = nm end end else order = ownedPetNames() end
     for _, nm in ipairs(order) do
         if not S.autoEquipPets or have >= cap then break end
-        if equipPetByName(nm) then have += 1; Stats.lastAction = "Equipped pet " .. tostring(nm) end
+        if equipPetByName(nm) then have += 1 end
         task.wait(0.35)
     end
 end)
 loopOn(function() return S.autoPetSlot end, 20, function()
     fire("Pets.RequestPurchasePetSlot")
 end)
--- Auto-Buy world pets: scan every wild pet first, pick one valid target, then TP/buy once.
--- This keeps pet effects/equip active without bouncing between random world pets.
-local function petTargetAllowed(name)
-    if not picked(S.buyPets) then return true end
-    return S.buyPets[tostring(name or "")] == true
-end
-local function bestWildPetTarget()
-    local cash, best, bestRank = getSheckles(), nil, nil
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+-- Auto-Buy world pets: walk up (teleport) to each affordable unowned wild pet and buy it.
+-- Buying == Pets.WildPetTame:Fire(refPart); server charges Price and REQUIRES proximity.
+loopOn(function() return S.autoBuyPets end, function() return S.petBuyInterval end, function()
     for _, w in ipairs(wildPets()) do
-        local name = tostring(w.name or "")
-        if w.part and w.part.Parent and w.owner == 0 and w.price > 0 and w.price <= S.maxPetPrice and cash >= w.price and petTargetAllowed(name) then
-            local priority = S.buyPets[name] and 0 or 1
-            local dist = (hrp and w.pos) and (hrp.Position - w.pos).Magnitude or 999999
-            local rank = priority * 1000000000 + w.price * 1000 + dist
-            if not bestRank or rank < bestRank then best, bestRank = w, rank end
+        if not S.autoBuyPets then break end
+        if w.owner == 0 and w.price > 0 and w.price <= S.maxPetPrice and getSheckles() >= w.price then
+            if S.petTeleport and w.pos then
+                atPosition(w.pos, function() fire("Pets.WildPetTame", w.part) end)
+            else
+                fire("Pets.WildPetTame", w.part)
+            end
+            Stats.tamed += 1
+            task.wait(jitter(0.3, 0.6))
         end
     end
-    return best
-end
-loopOn(function() return S.autoBuyPets end, function() return math.max(3, tonumber(S.petBuyInterval) or 5) end, function()
-    Stats.state = "PET_SCAN"
-    local w = bestWildPetTarget()
-    if not w then Stats.lastAction = "Pet scan: no valid target"; return end
-    Stats.state = "PET_BUY"
-    Stats.lastAction = "Buying pet " .. tostring(w.name or "?")
-    if S.petTeleport and w.pos then
-        atPosition(w.pos, function() fire("Pets.WildPetTame", w.part) end)
-    else
-        fire("Pets.WildPetTame", w.part)
-    end
-    Stats.tamed += 1
 end)
 loopOn(function() return S.autoSellPets end, 4, function()
     if not picked(S.sellPets) then return end
@@ -2833,23 +2795,13 @@ function applyUltraPerformance(on)
         local label = Instance.new("TextLabel")
         label.BackgroundTransparency = 1
         label.Font = Enum.Font.GothamBold
-        label.Text = "Ultra Performance ON\nloading status..."
+        label.Text = "Ultra Performance ON\n3D disabled / hidden — GUI tetap aktif"
         label.TextColor3 = Color3.fromRGB(140, 255, 170)
         label.TextSize = 18
         label.TextWrapped = true
-        label.Size = UDim2.new(1, -40, 0, 150)
-        label.Position = UDim2.new(0, 20, 0.5, -75)
+        label.Size = UDim2.new(1, -40, 0, 80)
+        label.Position = UDim2.new(0, 20, 0.5, -40)
         label.Parent = bg
-        task.spawn(function()
-            while _ultraPerformanceGui and _ultraPerformanceGui.Parent and S.ultraPerformance and not S.killed do
-                local text = string.format("Ultra Performance ON\nPlayer: %s\nPreset: %s | State: %s\nSheckles: %s | Tokens: %s\nFruit: %s/%s | Plants: %s\nPet Equip: %s\nLast: %s",
-                    tostring(LocalPlayer.Name), tostring(currentPreset), tostring(Stats.state or "IDLE"),
-                    fmt(getSheckles()), fmt(getTokens()), tostring(fruitCount()), tostring(maxFruitCap()),
-                    select(2, plantCounts()), selectedNames(S.equipPets), tostring(Stats.lastAction or "-"))
-                pcall(function() label.Text = text end)
-                task.wait(1)
-            end
-        end)
         _ultraPerformanceGui.Parent = pg
     end
     _ultraPerformanceApplied = true
@@ -2904,48 +2856,6 @@ local function webhookPost(payload, silent)
     if not good and not silent then warn("[Webhook] Failed (" .. tostring(code) .. ")") end
     return good, code
 end
-
-local function safeJoinMap(map)
-    return selectedNames(map)
-end
-local function gardenScanSummary(limit)
-    limit = limit or 15
-    local counts, total = plantCounts()
-    local rows = {}
-    for name, count in pairs(counts) do rows[#rows + 1] = { name = tostring(name), count = count } end
-    table.sort(rows, function(a, b) return a.count == b.count and a.name < b.name or a.count > b.count end)
-    if total <= 0 then return "No plants detected" end
-    local out, shown = {}, 0
-    for _, row in ipairs(rows) do
-        shown += 1
-        if shown > limit then break end
-        out[#out + 1] = row.name .. " x" .. tostring(row.count)
-    end
-    if #rows > limit then out[#out + 1] = "Other x" .. tostring(math.max(0, total - shown + 1)) end
-    return "Total " .. tostring(total) .. " plants\n" .. table.concat(out, "\n")
-end
-local function settingsSummary()
-    return table.concat({
-        "Buy Seeds: " .. safeJoinMap(S.buySeeds),
-        "Plant Seed: " .. tostring(S.plantSeed or "Best owned"),
-        "Equip Pets: " .. safeJoinMap(S.equipPets),
-        "Buy Pets: " .. safeJoinMap(S.buyPets),
-        "Buy Gear: " .. safeJoinMap(S.gearBuy),
-        "Sell At: " .. tostring(S.sellAt) .. " | Buy Interval: " .. tostring(S.buyInterval) .. "s",
-        "World Pet Buy: " .. tostring(S.autoBuyPets) .. " | Pet TP: " .. tostring(S.petTeleport),
-    }, "\n")
-end
-local function runtimeSummary()
-    local farmOn = S.autoFarm or S.autoBuy or S.autoPlant or S.autoHarvest or S.autoSell or S.autoExpand or S.autoDaily
-    return table.concat({
-        "preset " .. tostring(currentPreset) .. " | farm " .. tostring(farmOn),
-        "state " .. tostring(Stats.state or "IDLE"),
-        "last " .. tostring(Stats.lastAction or "-"),
-        "fruit " .. tostring(fruitCount()) .. "/" .. tostring(maxFruitCap()),
-        "ultra " .. tostring(S.ultraPerformance) .. " | fpsBoost " .. tostring(S.fpsBoost),
-    }, "\n")
-end
-
 local function sendWebhook(isTest)
     if not (isTest or S.webhookReport) then return false end
     local payload = { username = "Grow a Garden 2", embeds = { {
@@ -2958,9 +2868,7 @@ local function sendWebhook(isTest)
                 Stats.bought, Stats.planted, Stats.harvested, Stats.sold, fmt(Stats.earned)), inline = false },
             { name = "✨ Extras",   value = string.format("sprinklers %d · watered %d · tamed %d · opened %d · stolen %d",
                 Stats.sprinklers, Stats.watered, Stats.tamed, Stats.opened, Stats.stolen), inline = false },
-            { name = "⚙️ Runtime", value = runtimeSummary(), inline = false },
-            { name = "🧩 Settings Used", value = settingsSummary(), inline = false },
-            { name = "🌿 Garden Scan", value = gardenScanSummary(15), inline = false },
+            { name = "⚙️ Runtime", value = string.format("preset %s · farm %s · fruit %s/%s", tostring(currentPreset), tostring(S.autoFarm or S.autoBuy or S.autoPlant or S.autoHarvest or S.autoSell), tostring(fruitCount()), tostring(maxFruitCap())), inline = false },
             { name = "⏱️ Uptime",   value = hms(os.clock() - Stats.startAt), inline = true },
         }, footer = { text = "WalkyHub · GAG2" },
     } } }
@@ -2984,23 +2892,7 @@ local function sendWebhookEvent(kind, title, description, color)
         }, footer = { text = "WalkyHub · live event" },
     } } }, true)
 end
-task.spawn(function()
-    local lastSent, lastInterval = 0, nil
-    while not S.killed do
-        if S.webhookEnabled and S.webhookReport then
-            local interval = math.max(30, tonumber(S.webhookInterval) or 300)
-            if lastInterval ~= interval then lastInterval = interval; lastSent = os.clock() end
-            if os.clock() - lastSent >= interval then
-                lastSent = os.clock()
-                sendWebhook(false)
-            end
-            task.wait(1)
-        else
-            lastSent = os.clock()
-            task.wait(1)
-        end
-    end
-end)
+loopOn(function() return S.webhookEnabled and S.webhookReport end, function() return S.webhookInterval end, function() sendWebhook(false) end)
 
 -- lightweight live webhook event log (delta-based, low spam)
 task.spawn(function()
@@ -3058,12 +2950,11 @@ local miscTab = ui:Tab("Misc")
 local settingsTab = ui:Tab("Settings")
 
 -- Sidebar kiri sekarang scrollable: mouse wheel / drag di area tab untuk akses tab bawah.
-currentPreset = currentPreset or "Manual"
+local currentPreset = "Manual"
 local function setManualOff()
     S.autoFarm = false; S.autoBuy = false; S.autoPlant = false; S.autoHarvest = false; S.autoSell = false
     S.autoExpand = false; S.autoDaily = false; S.autoSprinkler = false; S.autoWater = false; S.autoSkill = false
     S.autoEquipPets = false; S.autoPetSlot = false; S.autoBuyPets = false; S.autoSellPets = false
-    for k in pairs(S.buyPets) do S.buyPets[k] = nil end
     S.autoEgg = false; S.autoCrate = false; S.autoPack = false; S.autoGear = false; S.autoSteal = false
     S.autoMail = false; S.autoAcceptGift = false; S.autoHop = false; S.allowServerHop = false; S.autoCodes = false; S.ultraPerformance = false
     currentPreset = "Manual"
@@ -3081,12 +2972,12 @@ local function applyGuiPreset(name)
 end
 
 local function copyDebugInfo()
-    local result = string.format("[GAG DEBUG]\nPreset=%s\nFarm=%s AutoBuy=%s AutoEquipPets=%s AutoBuyPets=%s\nBuySeeds=%s BuyPets=%s BuyInterval=%s BuyPerTick=%s\nEquipPets=%s OwnedPets=%s EquippedCount=%s\nSeedBuyActions=%s\nFruit=%s/%s State=%s Last=%s\nStats=bought:%s planted:%s harvested:%s sold:%s earned:%s\nAutoHop=%s AllowServerHop=%s\nUltra=%s",
-        tostring(currentPreset), tostring(S.autoFarm or S.autoBuy or S.autoPlant or S.autoHarvest or S.autoSell), tostring(S.autoBuy), tostring(S.autoEquipPets), tostring(S.autoBuyPets),
-        selectedNames(S.buySeeds), selectedNames(S.buyPets), tostring(S.buyInterval), tostring(S.buyPerTick),
+    local result = string.format("[GAG DEBUG]\nPreset=%s\nFarm=%s AutoBuy=%s AutoEquipPets=%s\nBuySeeds=%s BuyInterval=%s BuyPerTick=%s\nEquipPets=%s OwnedPets=%s EquippedCount=%s\nSeedBuyActions=%s\nFruit=%s/%s\nStats=bought:%s planted:%s harvested:%s sold:%s earned:%s\nAutoHop=%s AllowServerHop=%s\nUltra=%s",
+        tostring(currentPreset), tostring(S.autoFarm or S.autoBuy or S.autoPlant or S.autoHarvest or S.autoSell), tostring(S.autoBuy), tostring(S.autoEquipPets),
+        selectedNames(S.buySeeds), tostring(S.buyInterval), tostring(S.buyPerTick),
         selectedNames(S.equipPets), table.concat(ownedPetNames(), ", "), tostring(equippedPetCount()),
         availableActions(SEED_BUY_ACTIONS),
-        tostring(fruitCount()), tostring(maxFruitCap()), tostring(Stats.state), tostring(Stats.lastAction),
+        tostring(fruitCount()), tostring(maxFruitCap()),
         tostring(Stats.bought), tostring(Stats.planted), tostring(Stats.harvested), tostring(Stats.sold), tostring(Stats.earned),
         tostring(S.autoHop), tostring(S.allowServerHop), tostring(S.ultraPerformance))
     local ok = false
@@ -3099,13 +2990,8 @@ end
 local secDash = dashboardTab:Section("Quick Status")
 local dashPreset = secDash:Label("Preset: Manual")
 local dashFarm = secDash:Label("Farm: OFF")
-local dashState = secDash:Label("State: IDLE")
-local dashCash = secDash:Label("Sheckles: ...")
-local dashFruit = secDash:Label("Fruit: ...")
-local dashPlants = secDash:Label("Plants: ...")
-local dashSettings = secDash:Label("Settings: ...")
-local dashPets = secDash:Label("Pets: ...")
-local dashStats = secDash:Label("bought 0 | planted 0 | harvested 0 | sold 0")
+local dashCash = secDash:Label("Sheckles: …")
+local dashStats = secDash:Label("bought 0 · planted 0 · harvested 0 · sold 0")
 
 local secQuick = dashboardTab:Section("Quick Presets")
 secQuick:Button("Manual / Stop All", function() applyGuiPreset("Manual") end)
@@ -3172,7 +3058,6 @@ secSkill:Toggle("Auto-Spend skill points", false, function(v) S.autoSkill = v en
 -- ---- PETS ----
 local secPet = petsTab:Section("Pets")
 secPet:Dropdown("Pet to equip priority", ownedPetNames(), "", function(sel) pickMulti(sel, S.equipPets) end)
-secPet:Dropdown("World pet buy targets", PET_NAMES, {}, function(sel) pickMulti(sel, S.buyPets); S.buyPets["All valid targets"] = nil end)
 secPet:Toggle("Auto-Equip pets (to slot cap)", false, function(v) S.autoEquipPets = v end)
 secPet:Toggle("Auto-Buy pet slots", false, function(v) S.autoPetSlot = v end)
 secPet:Toggle("Auto-Buy world pets (walk up & buy)", false, function(v) S.autoBuyPets = v end)
@@ -3277,24 +3162,18 @@ end)
 task.spawn(function()
     while not S.killed do
         local p = myPlot()
-        local _, totalPlants = plantCounts()
-        local cashText = string.format("Sheckles: %s | Tokens: %s", fmt(getSheckles()), fmt(getTokens()))
-        local statText = string.format("bought %d | planted %d | harvested %d | sold %d (+%s)",
+        local cashText = string.format("Sheckles: %s · Tokens: %s", fmt(getSheckles()), fmt(getTokens()))
+        local statText = string.format("bought %d · planted %d · harvested %d · sold %d (+%s)",
             Stats.bought, Stats.planted, Stats.harvested, Stats.sold, fmt(Stats.earned))
         local farmOn = S.autoFarm or S.autoBuy or S.autoPlant or S.autoHarvest or S.autoSell or S.autoExpand or S.autoDaily
         pcall(function() plotLabel:Set("Plot: " .. (p and p.Name or "?")) end)
         pcall(function() cashLabel:Set(cashText) end)
-        pcall(function() statLabel:Set(statText .. " | State: " .. tostring(Stats.state or "IDLE")) end)
+        pcall(function() statLabel:Set(statText) end)
         pcall(function() dashPreset:Set("Preset: " .. tostring(currentPreset)) end)
         pcall(function() dashFarm:Set("Farm: " .. (farmOn and "ON" or "OFF")) end)
-        pcall(function() dashState:Set("State: " .. tostring(Stats.state or "IDLE") .. " | Last: " .. tostring(Stats.lastAction or "-")) end)
         pcall(function() dashCash:Set(cashText) end)
-        pcall(function() dashFruit:Set("Fruit: " .. tostring(fruitCount()) .. "/" .. tostring(maxFruitCap())) end)
-        pcall(function() dashPlants:Set("Plants: " .. tostring(totalPlants) .. " | Plot: " .. (p and p.Name or "?")) end)
-        pcall(function() dashSettings:Set("BuySeed: " .. safeJoinMap(S.buySeeds) .. " | Plant: " .. tostring(S.plantSeed or "Best owned")) end)
-        pcall(function() dashPets:Set("Equip: " .. safeJoinMap(S.equipPets) .. " | Buy: " .. safeJoinMap(S.buyPets) .. " | World: " .. tostring(S.autoBuyPets)) end)
         pcall(function() dashStats:Set(statText) end)
-        task.wait(1)
+        task.wait(2)
     end
 end)
 
