@@ -3383,11 +3383,14 @@ local function copyDebugInfo()
 end
 
 -- ---- DASHBOARD ----
+local dashPreset, dashFarm, dashCash, dashStats
+local plotLabel, cashLabel, statLabel
+do
 local secDash = dashboardTab:Section("Quick Status")
-local dashPreset = secDash:Label("Preset: Manual")
-local dashFarm = secDash:Label("Farm: OFF")
-local dashCash = secDash:Label("Sheckles: …")
-local dashStats = secDash:Label("bought 0 · planted 0 · harvested 0 · sold 0")
+dashPreset = secDash:Label("Preset: Manual")
+dashFarm = secDash:Label("Farm: OFF")
+dashCash = secDash:Label("Sheckles: …")
+dashStats = secDash:Label("bought 0 · planted 0 · harvested 0 · sold 0")
 
 local secQuick = dashboardTab:Section("Quick Presets")
 secQuick:Button("Manual / Stop All", function() applyGuiPreset("Manual") end)
@@ -3410,11 +3413,14 @@ secDashTips:Label("2) Atur detail di tab Farm / Boosts / Pets")
 secDashTips:Label("3) Server-hop = rejoin, biarkan OFF kalau AFK")
 secDashTips:Button("Copy Debug Info", copyDebugInfo)
 
+end
+
 -- ---- FARM ----
+do
 local secStatus = farmTab:Section("Status")
-local plotLabel = secStatus:Label("Plot: …")
-local cashLabel = secStatus:Label("Sheckles: …")
-local statLabel = secStatus:Label("—")
+plotLabel = secStatus:Label("Plot: …")
+cashLabel = secStatus:Label("Sheckles: …")
+statLabel = secStatus:Label("—")
 
 local secMaster = farmTab:Section("Auto-Farm (master)")
 secMaster:Toggle("Auto-Farm (buy+plant+harvest+sell+expand)", false, function(v) S.autoFarm = v end)
@@ -3445,7 +3451,10 @@ secPlant:Toggle("Auto-Shovel non-target when full", false, function(v) S.autoRep
 secPlant:Slider("Shovel max / cycle", 8, 1, 30, function(v) S.shovelPerCycle = math.floor(v) end)
 secPlant:Button("Copy Plant Cap Debug", function() return sharedEnv.GAGPlantCapDebug() end)
 
+end
+
 -- ---- BOOSTS ----
+do
 local secSpr = boostsTab:Section("Sprinklers & Water")
 secSpr:Toggle("Auto-place Sprinklers", false, function(v) S.autoSprinkler = v end)
 secSpr:Slider("Sprinkler target count", 4, 1, 12, function(v) S.sprinklerTarget = math.floor(v) end)
@@ -3459,7 +3468,10 @@ secSkill:Dropdown("Stats to level", { "BaseSpeed", "BaseJump", "ShovelPower", "M
 secSkill:Button("Auto Upgrade Inventory", function() S.skillStats = { MaxBackpack = true }; S.autoSkill = true; warn("[Skill] Auto Upgrade Inventory ON") end)
 secSkill:Toggle("Auto-Spend skill points", false, function(v) S.autoSkill = v end)
 
+end
+
 -- ---- PETS ----
+do
 local secPet = petsTab:Section("Pets")
 secPet:Dropdown("Pet to equip priority", ownedPetNames(), "", function(sel) pickMulti(sel, S.equipPets) end)
 secPet:Toggle("Auto-Equip pets (to slot cap)", false, function(v) S.autoEquipPets = v end)
@@ -3473,7 +3485,10 @@ local secPetSell = petsTab:Section("Sell pets")
 secPetSell:Dropdown("Pets to sell", ownedPetNames(), {}, function(sel) pickMulti(sel, S.sellPets) end)
 secPetSell:Toggle("Auto-Sell selected pets", false, function(v) S.autoSellPets = v end)
 
+end
+
 -- ---- EGGS & CRATES ----
+do
 local secOpen = openTab:Section("Auto-Open")
 secOpen:Toggle("Auto-Open Eggs", false, function(v) S.autoEgg = v end)
 secOpen:Toggle("Auto-Open Crates", false, function(v) S.autoCrate = v end)
@@ -3483,13 +3498,19 @@ local secOpenInfo = openTab:Section("Info")
 secOpenInfo:Label("Opens everything you own in each")
 secOpenInfo:Label("category. Confirm is automatic.")
 
+end
+
 -- ---- SHOP ----
+do
 local secShop = shopTab:Section("Gear shop")
 secShop:Dropdown("Gear to buy", GEAR_NAMES, {}, function(sel) pickMulti(sel, S.gearBuy) end)
 secShop:Toggle("Auto-Buy selected gear", false, function(v) S.autoGear = v end)
 secShop:Slider("Gear buy interval (s)", 10, 2, 60, function(v) S.gearInterval = v end)
 
+end
+
 -- ---- STEAL ----
+do
 local secSteal = stealTab:Section("Auto-Steal (night only)")
 secSteal:Toggle("Auto-Steal others' ripe fruit", false, function(v) S.autoSteal = v end)
 secSteal:Toggle("Teleport to fruit (needed to steal)", true, function(v) S.stealTeleport = v end)
@@ -3499,7 +3520,10 @@ local secStealInfo = stealTab:Section("Info")
 secStealInfo:Label("Night-only · TP to fruit, steal,")
 secStealInfo:Label("then TP home to bank each one.")
 
+end
+
 -- ---- MISC ----
+do
 local secMail = miscTab:Section("Mail & Gifts")
 secMail:Toggle("Auto-Claim mailbox", false, function(v) S.autoMail = v end)
 secMail:Toggle("Auto-Accept gifts", false, function(v) S.autoAcceptGift = v end)
@@ -3518,7 +3542,10 @@ secCode:Textbox("Redeem a code", "enter code", function(text)
 end)
 secCode:Toggle("Auto-redeem code list", false, function(v) S.autoCodes = v end)
 
+end
+
 -- ---- SETTINGS ----
+do
 local secPreset = settingsTab:Section("Preset Farm")
 secPreset:Label("Default Manual: pilih preset kalau mau auto-set farm")
 secPreset:Dropdown("Select preset", { "Manual", "Starter", "Balanced", "Rich", "AltToMain", "LowPC" }, "Manual", applyGuiPreset)
@@ -3540,6 +3567,8 @@ secWeb:Button("Send test report", function() task.spawn(function() sendWebhook(t
 local secInfo = settingsTab:Section("Info")
 secInfo:Label("Grow a Garden 2 · WalkyHub")
 secInfo:Label("Hotkey: Left Ctrl toggles UI")
+
+end
 
 -- Apply _G.GAGConfig after UI controls finish their default callbacks.
 task.defer(function()
