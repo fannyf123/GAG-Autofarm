@@ -3265,6 +3265,64 @@ task.spawn(function()
 end)
 
 -- // ============================================================ \\ --
+-- Compact plant cap debug helper. Stored in shared env to avoid adding many GUI-scope locals.
+sharedEnv.GAGPlantCapDebug = function()
+    local keys = { "cap", "max", "limit", "plant", "count", "slot", "size", "level", "expand", "garden", "plot" }
+    local function attrs(obj)
+        if not obj then return "nil" end
+        local ok, a = pcall(function() return obj:GetAttributes() end)
+        if not ok or type(a) ~= "table" then return "no attrs" end
+        local out = {}
+        for k, v in pairs(a) do
+            local lk = string.lower(tostring(k))
+            for _, kw in ipairs(keys) do
+                if string.find(lk, kw, 1, true) then out[#out + 1] = tostring(k) .. "=" .. tostring(v); break end
+            end
+            if #out >= 35 then break end
+        end
+        table.sort(out)
+        return #out > 0 and table.concat(out, ", ") or "none"
+    end
+    local plot = myPlot()
+    local plants = plot and plot:FindFirstChild("Plants")
+    local areas = myPlantAreas()
+    local empty = emptyPlantPositions(S.plantSpacing)
+    local first = plants and plants:GetChildren()[1] or nil
+    local tool = pickPlantTool()
+    local seed = tool and tool:GetAttribute("SeedTool") or "none"
+    local lines = {
+        "[GAG PLANT CAP DEBUG]",
+        "Plot=" .. tostring(plot and plot.Name or "nil"),
+        "PlantCount=" .. tostring(plants and #plants:GetChildren() or 0),
+        "PlantAreas=" .. tostring(#areas),
+        "EmptyVisualSlots=" .. tostring(#empty),
+        "PlantLimitSetting=" .. tostring(S.plantLimit or 0),
+        "AutoReplace=" .. tostring(S.autoReplacePlants) .. " ShovelPerCycle=" .. tostring(S.shovelPerCycle),
+        "PlantCapBlocked=" .. tostring(plantCapBlocked()) .. " Remaining=" .. tostring(math.max(0, math.floor((plantCapBlockedUntil or 0) - os.clock()))),
+        "NextSeedTool=" .. tostring(seed),
+        "TargetSeeds=" .. selectedNames(targetPlantMap(seed)),
+        "TargetSeedTools=" .. tostring(countTargetSeedTools(targetPlantMap(seed))),
+        "PlantLastError=" .. tostring(Stats.plantLastError),
+        "ShovelLastError=" .. tostring(Stats.shovelLastError),
+        "ShovelActions=" .. availableActions(SHOVEL_ACTIONS),
+        "PlantAction=" .. tostring(action("Plant.PlantSeed") ~= nil),
+        "PlayerAttrs=" .. attrs(LocalPlayer),
+        "PlotAttrs=" .. attrs(plot),
+        "PlantsFolderAttrs=" .. attrs(plants),
+        "FirstPlant=" .. tostring(first and first.Name or "nil"),
+        "FirstPlantAttrs=" .. attrs(first),
+    }
+    for i, area in ipairs(areas) do
+        if i > 4 then break end
+        lines[#lines + 1] = "PlantArea" .. tostring(i) .. "=" .. tostring(area.Name) .. " attrs: " .. attrs(area)
+    end
+    local result = table.concat(lines, "\n")
+    local ok = false
+    if setclipboard then ok = pcall(setclipboard, result) elseif toclipboard then ok = pcall(toclipboard, result) end
+    warn(ok and "[Debug] Copied plant cap debug" or result)
+    return result
+end
+
 -- Create UI with KrassUI
 local ui = KrassUI.new({
     Name = "Grow a Garden 2",
@@ -3307,71 +3365,6 @@ local function applyGuiPreset(name)
         warn("[GAGConfig] GUI preset selected: " .. tostring(name))
     end
     pcall(function() ui:Notify("Preset", currentPreset, 2.5) end)
-end
-
-local function attrSummary(obj, keywords, maxItems)
-    local out = {}
-    if not obj then return "nil" end
-    maxItems = maxItems or 30
-    local ok, attrs = pcall(function() return obj:GetAttributes() end)
-    if not ok or type(attrs) ~= "table" then return "no attrs" end
-    for k, v in pairs(attrs) do
-        local lk = string.lower(tostring(k))
-        local keep = false
-        for _, kw in ipairs(keywords) do if string.find(lk, kw, 1, true) then keep = true; break end end
-        if keep then out[#out + 1] = tostring(k) .. "=" .. tostring(v) end
-        if #out >= maxItems then break end
-    end
-    table.sort(out)
-    return #out > 0 and table.concat(out, ", ") or "none"
-end
-
-local function firstPlantModel()
-    local plot = myPlot(); local plants = plot and plot:FindFirstChild("Plants")
-    return plants and plants:GetChildren()[1] or nil
-end
-
-local function copyPlantCapDebug()
-    local keys = { "cap", "max", "limit", "plant", "count", "slot", "size", "level", "expand", "garden", "plot" }
-    local plot = myPlot(); local plants = plot and plot:FindFirstChild("Plants")
-    local areas = myPlantAreas()
-    local empty = emptyPlantPositions(S.plantSpacing)
-    local plantCount = plants and #plants:GetChildren() or 0
-    local firstPlant = firstPlantModel()
-    local tool = pickPlantTool()
-    local seed = tool and tool:GetAttribute("SeedTool") or "none"
-    local lines = {
-        "[GAG PLANT CAP DEBUG]",
-        "Plot=" .. tostring(plot and plot.Name or "nil"),
-        "PlantCount=" .. tostring(plantCount),
-        "PlantAreas=" .. tostring(#areas),
-        "EmptyVisualSlots=" .. tostring(#empty),
-        "PlantLimitSetting=" .. tostring(S.plantLimit or 0),
-        "AutoReplace=" .. tostring(S.autoReplacePlants) .. " ShovelPerCycle=" .. tostring(S.shovelPerCycle),
-        "PlantCapBlocked=" .. tostring(plantCapBlocked()) .. " Remaining=" .. tostring(math.max(0, math.floor((plantCapBlockedUntil or 0) - os.clock()))),
-        "NextSeedTool=" .. tostring(seed),
-        "TargetSeeds=" .. selectedNames(targetPlantMap(seed)),
-        "TargetSeedTools=" .. tostring(countTargetSeedTools(targetPlantMap(seed))),
-        "PlantLastError=" .. tostring(Stats.plantLastError),
-        "ShovelLastError=" .. tostring(Stats.shovelLastError),
-        "ShovelActions=" .. availableActions(SHOVEL_ACTIONS),
-        "PlantAction=" .. tostring(action("Plant.PlantSeed") ~= nil),
-        "PlayerAttrs=" .. attrSummary(LocalPlayer, keys, 40),
-        "PlotAttrs=" .. attrSummary(plot, keys, 40),
-        "PlantsFolderAttrs=" .. attrSummary(plants, keys, 40),
-        "FirstPlant=" .. tostring(firstPlant and firstPlant.Name or "nil"),
-        "FirstPlantAttrs=" .. attrSummary(firstPlant, keys, 40),
-    }
-    for i, area in ipairs(areas) do
-        if i > 4 then break end
-        lines[#lines + 1] = "PlantArea" .. tostring(i) .. "=" .. tostring(area.Name) .. " attrs: " .. attrSummary(area, keys, 20)
-    end
-    local result = table.concat(lines, "
-")
-    local ok = false
-    if setclipboard then ok = pcall(setclipboard, result) elseif toclipboard then ok = pcall(toclipboard, result) end
-    warn(ok and "[Debug] Copied plant cap debug" or result)
-    return result
 end
 
 local function copyDebugInfo()
@@ -3450,7 +3443,7 @@ secPlant:Slider("Sell interval (s, sell-only mode)", 15, 3, 120, function(v) S.s
 secPlant:Toggle("Auto-Pot grown plants", false, function(v) S.autoPot = v end)
 secPlant:Toggle("Auto-Shovel non-target when full", false, function(v) S.autoReplacePlants = v end)
 secPlant:Slider("Shovel max / cycle", 8, 1, 30, function(v) S.shovelPerCycle = math.floor(v) end)
-secPlant:Button("Copy Plant Cap Debug", copyPlantCapDebug)
+secPlant:Button("Copy Plant Cap Debug", function() return sharedEnv.GAGPlantCapDebug() end)
 
 -- ---- BOOSTS ----
 local secSpr = boostsTab:Section("Sprinklers & Water")
