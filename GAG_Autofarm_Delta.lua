@@ -1934,9 +1934,10 @@ end
 local SHOVEL_ACTIONS = { "Garden.ShovelPlant", "Garden.RemovePlant", "Plant.ShovelPlant", "Plant.RemovePlant", "Plants.ShovelPlant", "Plants.RemovePlant" }
 local function shovelPlantModel(m)
     local plantId = m and (m:GetAttribute("PlantId") or m:GetAttribute("Id") or m.Name)
-    if not plantId then return false end
-    local ok = fireFirst(SHOVEL_ACTIONS, tostring(plantId))
-    if not ok then ok = fireFirst(SHOVEL_ACTIONS, m) end
+    if not plantId then Stats.shovelLastError = "missing plant id"; return false end
+    local ok, used, res = fireFirst(SHOVEL_ACTIONS, tostring(plantId))
+    if not ok then ok, used, res = fireFirst(SHOVEL_ACTIONS, m) end
+    Stats.shovelLastError = ok and ("ok via " .. tostring(used)) or tostring(res or "no shovel action worked")
     return ok == true
 end
 
@@ -2100,7 +2101,7 @@ local S = {
 local currentPreset = "Manual"
 local Stats = { bought = 0, planted = 0, harvested = 0, sold = 0, earned = 0,
     sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock(),
-    state = "IDLE", lastAction = "idle", petLast = "idle", webhookLastOk = 0, webhookNextAt = 0, webhookLastError = "none" }
+    state = "IDLE", lastAction = "idle", petLast = "idle", plantLastError = "none", shovelLastError = "none", webhookLastOk = 0, webhookNextAt = 0, webhookLastError = "none" }
 local WebhookStats = { bought = 0, planted = 0, harvested = 0, sold = 0, opened = 0, stolen = 0 }
 
 local _due = {}
@@ -2460,6 +2461,7 @@ local function stepPlant()
             if failed then
                 plantBlockedUntil[seedAttr] = os.clock() + 10
                 plantCapBlockedUntil = os.clock() + 20
+                Stats.plantLastError = type(res) == "table" and HttpService:JSONEncode(res) or tostring(res or "PlantSeed failed")
                 Stats.lastAction = "plant cap/full blocked " .. tostring(seedAttr)
                 break
             end
@@ -3307,6 +3309,71 @@ local function applyGuiPreset(name)
     pcall(function() ui:Notify("Preset", currentPreset, 2.5) end)
 end
 
+local function attrSummary(obj, keywords, maxItems)
+    local out = {}
+    if not obj then return "nil" end
+    maxItems = maxItems or 30
+    local ok, attrs = pcall(function() return obj:GetAttributes() end)
+    if not ok or type(attrs) ~= "table" then return "no attrs" end
+    for k, v in pairs(attrs) do
+        local lk = string.lower(tostring(k))
+        local keep = false
+        for _, kw in ipairs(keywords) do if string.find(lk, kw, 1, true) then keep = true; break end end
+        if keep then out[#out + 1] = tostring(k) .. "=" .. tostring(v) end
+        if #out >= maxItems then break end
+    end
+    table.sort(out)
+    return #out > 0 and table.concat(out, ", ") or "none"
+end
+
+local function firstPlantModel()
+    local plot = myPlot(); local plants = plot and plot:FindFirstChild("Plants")
+    return plants and plants:GetChildren()[1] or nil
+end
+
+local function copyPlantCapDebug()
+    local keys = { "cap", "max", "limit", "plant", "count", "slot", "size", "level", "expand", "garden", "plot" }
+    local plot = myPlot(); local plants = plot and plot:FindFirstChild("Plants")
+    local areas = myPlantAreas()
+    local empty = emptyPlantPositions(S.plantSpacing)
+    local plantCount = plants and #plants:GetChildren() or 0
+    local firstPlant = firstPlantModel()
+    local tool = pickPlantTool()
+    local seed = tool and tool:GetAttribute("SeedTool") or "none"
+    local lines = {
+        "[GAG PLANT CAP DEBUG]",
+        "Plot=" .. tostring(plot and plot.Name or "nil"),
+        "PlantCount=" .. tostring(plantCount),
+        "PlantAreas=" .. tostring(#areas),
+        "EmptyVisualSlots=" .. tostring(#empty),
+        "PlantLimitSetting=" .. tostring(S.plantLimit or 0),
+        "AutoReplace=" .. tostring(S.autoReplacePlants) .. " ShovelPerCycle=" .. tostring(S.shovelPerCycle),
+        "PlantCapBlocked=" .. tostring(plantCapBlocked()) .. " Remaining=" .. tostring(math.max(0, math.floor((plantCapBlockedUntil or 0) - os.clock()))),
+        "NextSeedTool=" .. tostring(seed),
+        "TargetSeeds=" .. selectedNames(targetPlantMap(seed)),
+        "TargetSeedTools=" .. tostring(countTargetSeedTools(targetPlantMap(seed))),
+        "PlantLastError=" .. tostring(Stats.plantLastError),
+        "ShovelLastError=" .. tostring(Stats.shovelLastError),
+        "ShovelActions=" .. availableActions(SHOVEL_ACTIONS),
+        "PlantAction=" .. tostring(action("Plant.PlantSeed") ~= nil),
+        "PlayerAttrs=" .. attrSummary(LocalPlayer, keys, 40),
+        "PlotAttrs=" .. attrSummary(plot, keys, 40),
+        "PlantsFolderAttrs=" .. attrSummary(plants, keys, 40),
+        "FirstPlant=" .. tostring(firstPlant and firstPlant.Name or "nil"),
+        "FirstPlantAttrs=" .. attrSummary(firstPlant, keys, 40),
+    }
+    for i, area in ipairs(areas) do
+        if i > 4 then break end
+        lines[#lines + 1] = "PlantArea" .. tostring(i) .. "=" .. tostring(area.Name) .. " attrs: " .. attrSummary(area, keys, 20)
+    end
+    local result = table.concat(lines, "
+")
+    local ok = false
+    if setclipboard then ok = pcall(setclipboard, result) elseif toclipboard then ok = pcall(toclipboard, result) end
+    warn(ok and "[Debug] Copied plant cap debug" or result)
+    return result
+end
+
 local function copyDebugInfo()
     local result = string.format("[GAG DEBUG]\nPreset=%s\nFarm=%s AutoBuy=%s AutoEquipPets=%s\nBuySeeds=%s BuyInterval=%s BuyPerTick=%s\nEquipPets=%s OwnedPets=%s EquippedCount=%s\nSeedBuyActions=%s\nFruit=%s/%s\nStats=bought:%s planted:%s harvested:%s sold:%s earned:%s\nAutoHop=%s AllowServerHop=%s\nUltra=%s",
         tostring(currentPreset), tostring(S.autoFarm or S.autoBuy or S.autoPlant or S.autoHarvest or S.autoSell), tostring(S.autoBuy), tostring(S.autoEquipPets),
@@ -3383,6 +3450,7 @@ secPlant:Slider("Sell interval (s, sell-only mode)", 15, 3, 120, function(v) S.s
 secPlant:Toggle("Auto-Pot grown plants", false, function(v) S.autoPot = v end)
 secPlant:Toggle("Auto-Shovel non-target when full", false, function(v) S.autoReplacePlants = v end)
 secPlant:Slider("Shovel max / cycle", 8, 1, 30, function(v) S.shovelPerCycle = math.floor(v) end)
+secPlant:Button("Copy Plant Cap Debug", copyPlantCapDebug)
 
 -- ---- BOOSTS ----
 local secSpr = boostsTab:Section("Sprinklers & Water")
