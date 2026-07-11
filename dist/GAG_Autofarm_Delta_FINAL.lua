@@ -2130,7 +2130,7 @@ local S = {
     -- buy / plant / harvest / sell
     autoBuy = false, buySeeds = {}, buyInterval = 5, buyPerTick = 8,
     autoPlant = false, plantSpacing = 4, plantSeed = "Best owned", plantPlan = {}, plantLimit = 0, keepSeeds = {}, minimumSeed = "",
-    autoHarvest = false, harvestInterval = 2, harvestDelay = 0, spamHarvest = true, turboFarm = true, spamHarvestBatch = 50, onlyHarvest = {}, dontHarvest = {}, neverSellFruit = {}, neverSellMut = {},
+    autoHarvest = false, harvestInterval = 2, harvestDelay = 0.02, spamHarvest = false, turboFarm = false, spamHarvestBatch = 50, onlyHarvest = {}, dontHarvest = {}, neverSellFruit = {}, neverSellMut = {},
     autoSell = false, sellAt = 85, sellInterval = 15,
     autoExpand = false, autoPot = false, autoDaily = false, autoReplacePlants = false, replaceFieldWithTarget = false, shovelPerCycle = 8,
     -- boosts
@@ -2737,7 +2737,7 @@ task.spawn(function()
     while not S.killed do
         if not S.turboFarm and (S.autoFarm or S.autoHarvest) then
             pcall(stepHarvest)
-            task.wait(S.spamHarvest and 0.005 or 0.02)
+            task.wait(S.spamHarvest and 0.005 or 0.08)
         elseif not S.turboFarm and S.autoSell then
             pcall(stepSell)
             task.wait(0.05)
@@ -3727,10 +3727,11 @@ farmControls.autoReplace = secPlant:Toggle("Ganti Tanaman Saat Penuh", S.autoRep
 farmControls.replaceField = secPlant:Toggle("Ganti Field ke Seed Pilihan", S.replaceFieldWithTarget, function(v) S.replaceFieldWithTarget = v end)
 
 local secSpeed = farmTab:Section("Kecepatan & Debug (Lanjutan)")
-secSpeed:Toggle("Panen Cepat untuk Kebun Besar", true, function(v) S.spamHarvest = v end)
-secSpeed:Toggle("Worker Turbo", true, function(v) S.turboFarm = v; if v then S.spamHarvest = true end end)
+secSpeed:Label("Mode normal lebih ringan. Aktifkan Turbo hanya bila perangkat kuat.")
+secSpeed:Toggle("Panen Cepat untuk Kebun Besar", S.spamHarvest, function(v) S.spamHarvest = v end)
+secSpeed:Toggle("Worker Turbo", S.turboFarm, function(v) S.turboFarm = v; if v then S.spamHarvest = true end end)
 secSpeed:Slider("Batch Panen", 50, 5, 100, function(v) S.spamHarvestBatch = math.floor(v) end)
-secSpeed:Slider("Jeda Panen", 0, 0, 0.2, function(v) S.harvestDelay = v end)
+secSpeed:Slider("Jeda Panen", S.harvestDelay, 0, 0.2, function(v) S.harvestDelay = v end)
 secSpeed:Slider("Jeda Jual", 15, 3, 120, function(v) S.sellInterval = v end)
 secSpeed:Toggle("Pot Tanaman Otomatis", false, function(v) S.autoPot = v end)
 secSpeed:Slider("Maksimum Sekop per Putaran", 8, 1, 30, function(v) S.shovelPerCycle = math.floor(v) end)
