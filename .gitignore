@@ -1,0 +1,10 @@
+# Local agent/session notes
+memory/
+
+# Python tool cache
+__pycache__/
+*.py[cod]
+
+# Local OS/editor files
+.DS_Store
+Thumbs.db
