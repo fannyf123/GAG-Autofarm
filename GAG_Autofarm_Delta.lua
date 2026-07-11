@@ -2529,7 +2529,7 @@ local function canPlantNow()
     return S.autoReplacePlants == true
 end
 
-local harvestSellPending
+local harvestSellPending, sellUrgent
 local function stepPlant()
     Stats.state = "PLANT"
     if plantCapBlocked() then
@@ -2561,8 +2561,8 @@ local function stepPlant()
     end
     for _, pos in ipairs(empty) do
         if not (S.autoFarm or S.autoPlant) then break end
-        if harvestSellPending and harvestSellPending() then
-            Stats.lastAction = "plant paused: harvest/sell priority"
+        if sellUrgent and sellUrgent() then
+            Stats.lastAction = "plant paused: sell priority"
             break
         end
         if not heldToolByAttr("SeedTool") then
@@ -2611,9 +2611,12 @@ end
 
 local function maxFruitCap() return tonumber(LocalPlayer:GetAttribute("MaxFruitCapacity")) or 100 end
 local function fruitCount()  return tonumber(LocalPlayer:GetAttribute("FruitCount")) or 0 end
-harvestSellPending = function()
+sellUrgent = function()
     local sellAt = math.min(S.sellAt or 85, maxFruitCap())
-    if (S.autoFarm or S.autoSell) and fruitCount() >= sellAt then return true end
+    return (S.autoFarm or S.autoSell) and fruitCount() >= sellAt
+end
+harvestSellPending = function()
+    if sellUrgent() then return true end
     if not (S.autoFarm or S.autoHarvest) then return false end
     for _, h in ipairs(ripeHarvests()) do
         if (not picked(S.onlyHarvest) or S.onlyHarvest[h.name])
@@ -2702,7 +2705,7 @@ end
 
 task.spawn(function()
     while not S.killed do
-        local priority = harvestSellPending()
+        local priority = sellUrgent()
         -- Buying is low-volume and does not consume fruit capacity. Let it run
         -- while harvesting so a permanently ripe garden cannot starve seeds.
         if not S.turboFarm and (S.autoFarm or S.autoBuy)                    then pcall(stepBuy) end
@@ -2749,7 +2752,7 @@ end)
 task.spawn(function()
     while not S.killed do
         if S.turboFarm and (S.autoFarm or S.autoPlant) then
-            if not harvestSellPending() and canPlantNow() then
+            if not sellUrgent() and canPlantNow() then
                 pcall(stepPlant)
                 task.wait(0.02)
             else
