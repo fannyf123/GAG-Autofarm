@@ -317,6 +317,10 @@ end
 function Config.ApplyPreset(GAG, presetName)
     if not PRESETS[presetName] then return false end
     local cfg = FinalizeConfig(DeepMerge(DEFAULTS, ExpandSections(PRESETS[presetName])))
+    -- Preset buttons are intended as one-click farm modes, not merely a set
+    -- of values waiting for the user to enable each worker manually.
+    cfg["Auto Harvest"] = true
+    cfg["Auto Plant"] = true
     cfg.Preset = presetName
     GAG.Config = cfg
     GAG.ConfigData = cfg

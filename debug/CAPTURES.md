@@ -18,7 +18,7 @@ Before sharing any raw capture, scan it again for credentials, cookies, webhook 
 ## Filtered live debugger
 
 `GAG_Remote_Filter_Debugger.lua` is a targeted executor-side debugger for the
-`Shovel.UseShovel` and `Plant.PlantSeed` call contracts. It copies a
+`Shovel.UseShovel`, `Plant.PlantSeed`, and `Place.PlaceSprinkler` call contracts. It copies a
 filtered metadata report at startup and hooks real `Fire()` calls when the
 executor supports `hookfunction`. After reproducing the action, run
 `GAGRemoteFilterCopy()` and share the copied report.

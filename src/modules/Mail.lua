@@ -301,35 +301,30 @@ function Mail.Start(GAG)
 
 		local sendTo = Config.Get(GAG, "Mail.Send To")
 		if sendTo and sendTo ~= "" then
-			local targetPlayer = findPlayerByUsername(sendTo)
-			if not targetPlayer then
-				Utils.Log("[Mail] Target player not found: " .. sendTo)
-			else
-				local sendEvery = Config.Get(GAG, "Mail.Send Every") or 0
-				local delaySeconds = sendEvery > 0 and (sendEvery * 60) or 45
+			local sendEvery = Config.Get(GAG, "Mail.Send Every") or 0
+			local delaySeconds = sendEvery > 0 and (sendEvery * 60) or 45
 
-				local now = tick()
-				if now - lastSendTime >= delaySeconds then
-					local sendableItems = Mail.GetSendableItems(GAG)
+			local now = tick()
+			if now - lastSendTime >= delaySeconds then
+				local sendableItems = Mail.GetSendableItems(GAG)
 
-					if #sendableItems > 0 then
-						Utils.Log("[Mail] Processing " .. #sendableItems .. " items to send")
+				if #sendableItems > 0 then
+					Utils.Log("[Mail] Processing " .. #sendableItems .. " items to send")
 
-						for _, itemData in ipairs(sendableItems) do
-							if not GAG.Running then break end
+					for _, itemData in ipairs(sendableItems) do
+						if not GAG.Running then break end
 
-							Mail.SendItem(GAG, itemData.item, itemData.count, targetPlayer.Name)
-							task.wait(2)
-						end
-
-						lastSendTime = tick()
-					else
-						Utils.Log("[Mail] No items to send")
+						Mail.SendItem(GAG, itemData.item, itemData.count, sendTo)
+						task.wait(2)
 					end
+
+					lastSendTime = tick()
 				else
-					local remaining = math.ceil(delaySeconds - (now - lastSendTime))
-					Utils.Log("[Mail] Next send in " .. remaining .. "s")
+					Utils.Log("[Mail] No items to send")
 				end
+			else
+				local remaining = math.ceil(delaySeconds - (now - lastSendTime))
+				Utils.Log("[Mail] Next send in " .. remaining .. "s")
 			end
 		end
 

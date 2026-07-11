@@ -2144,6 +2144,7 @@ local S = {
     killed = false,
 }
 local currentPreset = "Manual"
+local autoFarmControl
 local Stats = { bought = 0, planted = 0, harvested = 0, sold = 0, earned = 0,
     sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock(),
     state = "IDLE", lastAction = "idle", petLast = "idle", plantLastError = "none", shovelLastError = "none", webhookLastOk = 0, webhookNextAt = 0, webhookLastError = "none" }
@@ -2325,6 +2326,12 @@ local function gagApplyConfig(raw)
     end
     gagApplyPerformance(perf)
 
+    -- A preset represents a complete farm mode. Keep the master worker on so
+    -- its harvest/sell workers continue even when planting is cap-blocked.
+    if presetName then
+        S.autoFarm = true
+        if autoFarmControl then autoFarmControl:Set(true, false) end
+    end
     if presetName then warn("[GAGConfig] Applied preset: " .. tostring(presetName)) else warn("[GAGConfig] Applied custom config") end
 end
 
@@ -2769,12 +2776,14 @@ end
 -- // ============================================================ \\ --
 -- //                       BOOSTS (passive)                      \\ --
 -- // ============================================================ \\ --
--- Auto-Sprinkler: place best owned sprinklers until target count, spread across the plot
+-- Auto-Sprinkler: place owned sprinklers where they cover plants while keeping
+-- enough distance from existing sprinklers. Plant positions are coverage targets,
+-- not obstacles; treating them as obstacles left dense gardens with no valid spot.
 loopOn(function() return S.autoSprinkler end, function() return S.sprinklerInterval end, function()
     local pid = myPlotId(); if not pid then return end
     local placed = existingSprinklerPositions()
     if #placed >= (S.sprinklerTarget or 4) then return end
-    for _, plantPos in ipairs(existingPlantPositions()) do placed[#placed + 1] = plantPos end
+    local plantPositions = existingPlantPositions()
     for _, t in ipairs(sprinklerToolsSorted()) do
         if not S.autoSprinkler or #existingSprinklerPositions() >= (S.sprinklerTarget or 4) then break end
         local hum = humanoid(); if not hum then break end
@@ -2782,13 +2791,32 @@ loopOn(function() return S.autoSprinkler end, function() return S.sprinklerInter
         task.wait(0.12)
         t = heldToolByAttr("Sprinkler"); if not t then break end
         local grid = plantGrid(8)
+        local bestPos, bestCoverage = nil, -1
         for _, pos in ipairs(grid) do
             local far = true
             for _, op in ipairs(placed) do if (pos - op).Magnitude < 12 then far = false; break end end
             if far then
-                local ok = fire("Place.PlaceSprinkler", pos, t:GetAttribute("Sprinkler"), t, pid)
-                if ok then Stats.sprinklers += 1; Stats.lastAction = "placed sprinkler" end
-                placed[#placed + 1] = pos; task.wait(0.18)
+                local coverage = 0
+                for _, plantPos in ipairs(plantPositions) do
+                    if (pos - plantPos).Magnitude <= 24 then coverage += 1 end
+                end
+                if coverage > bestCoverage then
+                    bestPos, bestCoverage = pos, coverage
+                end
+            end
+        end
+        if bestPos then
+            local before = #existingSprinklerPositions()
+            local sprinklerName = t:GetAttribute("Sprinkler") or t.Name
+            local ok = fire("Place.PlaceSprinkler", bestPos, sprinklerName, t, pid)
+            task.wait(0.25)
+            local after = #existingSprinklerPositions()
+            if ok and after > before then
+                Stats.sprinklers += 1
+                Stats.lastAction = "placed sprinkler"
+                placed[#placed + 1] = bestPos
+            else
+                Stats.lastAction = "sprinkler placement not confirmed"
                 break
             end
         end
@@ -3495,6 +3523,7 @@ local function setManualOff()
     for k in pairs(S.buyPets) do S.buyPets[k] = nil end
     S.autoEgg = false; S.autoCrate = false; S.autoPack = false; S.autoGear = false; S.autoSteal = false
     S.autoMail = false; S.autoAcceptGift = false; S.autoHop = false; S.allowServerHop = false; S.autoCodes = false; S.ultraPerformance = false
+    if autoFarmControl then autoFarmControl:Set(false, false) end
     currentPreset = "Manual"
     warn("[GAGConfig] Manual selected: all automation OFF")
 end
@@ -3567,7 +3596,7 @@ statLabel = secStatus:Label("—")
 
 local secMaster = farmTab:Section("1. Jalankan Farm")
 secMaster:Label("Paling mudah: aktifkan Auto-Farm, lalu pilih seed di bawah.")
-secMaster:Toggle("Auto-Farm", false, function(v) S.autoFarm = v end)
+autoFarmControl = secMaster:Toggle("Auto-Farm", S.autoFarm, function(v) S.autoFarm = v end)
 secMaster:Toggle("Perluas Kebun Otomatis", false, function(v) S.autoExpand = v end)
 secMaster:Toggle("Daily Deal Otomatis", false, function(v) S.autoDaily = v end)
 

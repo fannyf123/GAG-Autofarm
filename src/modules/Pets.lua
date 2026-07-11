@@ -416,9 +416,10 @@ function Pets.ProcessPetEquipConfig()
     -- Build equip queue with priority (order matters for Lua tables)
 	local equipQueue = {}
 	-- Preserve array order for the documented { "Unicorn", "Deer" } form.
+	-- Each entry is a priority, so fill available slots with it before the next.
 	for _, petName in ipairs(equipConfig) do
 		if type(petName) == "string" and petName ~= "" then
-			table.insert(equipQueue, { name = petName, target = 1 })
+			table.insert(equipQueue, { name = petName, target = slots.max })
 		end
 	end
 	for petName, targetCount in pairs(equipConfig) do

@@ -222,7 +222,7 @@ function Plant.PlantSeed(seedName, position)
 	GAG.Modules.Utils.TeleportTo(position)
 	task.wait(0.15)
 
-	local planted = GAG.Modules.Utils.FireRemote("Networking.Plant.PlantSeed", seedName, position)
+	local planted = GAG.Modules.Utils.FireRemote("PlantSeed", position, seedName, tool)
 	if not planted then
 		GAG.Modules.Utils.Log("PlantSeed: plant remote not found", "Error")
 		return false
@@ -234,9 +234,6 @@ function Plant.PlantSeed(seedName, position)
 end
 
 function Plant.ShovelPlant(plant)
-	if not true then
-		return false
-	end
 	if not plant then return false end
 
 	local seedName = plant:GetAttribute("SeedName") or plant.Name
@@ -508,7 +505,12 @@ function Plant.Start(gag)
 	GAG = gag
 	GAG.Modules.Utils.Log("Plant loop started", "Info")
 
-	while GAG.Config.Get("Auto Plant") do
+	while GAG and GAG.Running and (not GAG.State or GAG.State.Running ~= false) do
+		if not GAG.Config.Get("Auto Plant") then
+			GAG.Modules.Utils.Sleep(0.5)
+			continue
+		end
+
 		local emptyPositions = Plant.GetEmptyPositions()
 
 		if #emptyPositions > 0 then

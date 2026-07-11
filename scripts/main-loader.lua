@@ -1,4 +1,4 @@
-local URL = "https://raw.githubusercontent.com/fannyf123/GAG-Autofarm/master/GAG_Autofarm_Delta.lua"
+local URL = "https://raw.githubusercontent.com/fannyf123/GAG-Autofarm/main/GAG_Autofarm_Delta.lua"
 
 local function show(title, message)
     warn("[GAG] " .. tostring(title) .. ": " .. tostring(message))

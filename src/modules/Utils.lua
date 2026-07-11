@@ -464,6 +464,7 @@ local REMOTE_ALIASES = {
 	EquipGear = "Networking.GearShop.EquipGear",
 	UnequipGear = "Networking.GearShop.UnequipGear",
 	RequestEquippableState = "Networking.GearShop.RequestEquippableState",
+	PlaceSprinkler = "Networking.Place.PlaceSprinkler",
 
 	-- Seed shop (from record.txt)
 	BuySeed = "Networking.SeedShop.PurchaseSeed",

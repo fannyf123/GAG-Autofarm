@@ -548,6 +548,10 @@ end
 function Config.ApplyPreset(GAG, presetName)
     if not PRESETS[presetName] then return false end
     local cfg = FinalizeConfig(DeepMerge(DEFAULTS, ExpandSections(PRESETS[presetName])))
+    -- Preset buttons are intended as one-click farm modes, not merely a set
+    -- of values waiting for the user to enable each worker manually.
+    cfg["Auto Harvest"] = true
+    cfg["Auto Plant"] = true
     cfg.Preset = presetName
     GAG.Config = cfg
     GAG.ConfigData = cfg
@@ -1194,6 +1198,7 @@ local REMOTE_ALIASES = {
 	EquipGear = "Networking.GearShop.EquipGear",
 	UnequipGear = "Networking.GearShop.UnequipGear",
 	RequestEquippableState = "Networking.GearShop.RequestEquippableState",
+	PlaceSprinkler = "Networking.Place.PlaceSprinkler",
 
 	-- Seed shop (from record.txt)
 	BuySeed = "Networking.SeedShop.PurchaseSeed",
@@ -2156,7 +2161,7 @@ function Plant.PlantSeed(seedName, position)
 	GAG.Modules.Utils.TeleportTo(position)
 	task.wait(0.15)
 
-	local planted = GAG.Modules.Utils.FireRemote("Networking.Plant.PlantSeed", seedName, position)
+	local planted = GAG.Modules.Utils.FireRemote("PlantSeed", position, seedName, tool)
 	if not planted then
 		GAG.Modules.Utils.Log("PlantSeed: plant remote not found", "Error")
 		return false
@@ -2168,9 +2173,6 @@ function Plant.PlantSeed(seedName, position)
 end
 
 function Plant.ShovelPlant(plant)
-	if not true then
-		return false
-	end
 	if not plant then return false end
 
 	local seedName = plant:GetAttribute("SeedName") or plant.Name
@@ -2442,7 +2444,12 @@ function Plant.Start(gag)
 	GAG = gag
 	GAG.Modules.Utils.Log("Plant loop started", "Info")
 
-	while GAG.Config.Get("Auto Plant") do
+	while GAG and GAG.Running and (not GAG.State or GAG.State.Running ~= false) do
+		if not GAG.Config.Get("Auto Plant") then
+			GAG.Modules.Utils.Sleep(0.5)
+			continue
+		end
+
 		local emptyPositions = Plant.GetEmptyPositions()
 
 		if #emptyPositions > 0 then
@@ -2526,7 +2533,7 @@ function BuySeeds.GetShopStock(GAG)
 	local stock = {}
 
 	local shopItems = Utils.GetShopItems("Seeds") or Utils.GetShopItems("SeedShop")
-	if shopItems and type(shopItems) == "table" then
+	if type(shopItems) == "table" and #shopItems > 0 then
 		for _, item in ipairs(shopItems) do
 			local seedName = item.Name or item.ItemName or item[1]
 			local price = item.Price or item.Cost or item[2]
@@ -2539,6 +2546,8 @@ function BuySeeds.GetShopStock(GAG)
 				}
 			end
 		end
+		GAG.State.SeedShopStock = stock
+		GAG.State.LastShopRefresh = tick()
 		return stock
 	end
 
@@ -2561,22 +2570,13 @@ function BuySeeds.GetShopStock(GAG)
 							end
 							stock[seedName] = {
 								price = price,
-								available = not child.Visible or child.Visible,
+								available = child.Visible,
 								stock = -1,
 							}
 						end
 					end
 				end
 			end
-		end
-	end
-
-	if next(stock) == nil then
-		local ok, result = pcall(function()
-			return Utils.FireRemote("GetShopStock", "Seeds")
-		end)
-		if ok and type(result) == "table" then
-			stock = result
 		end
 	end
 
@@ -3299,9 +3299,10 @@ function Pets.ProcessPetEquipConfig()
     -- Build equip queue with priority (order matters for Lua tables)
 	local equipQueue = {}
 	-- Preserve array order for the documented { "Unicorn", "Deer" } form.
+	-- Each entry is a priority, so fill available slots with it before the next.
 	for _, petName in ipairs(equipConfig) do
 		if type(petName) == "string" and petName ~= "" then
-			table.insert(equipQueue, { name = petName, target = 1 })
+			table.insert(equipQueue, { name = petName, target = slots.max })
 		end
 	end
 	for petName, targetCount in pairs(equipConfig) do
@@ -3718,7 +3719,13 @@ function Gear.PlaceSprinkler(sprinklerName, position)
 	TeleportTo(position)
 	Sleep(0.2)
 
-	local placed = FireRemote("Networking.GearShop.EquipGear", sprinklerName, position)
+	local plotId = player and player:GetAttribute("PlotId")
+	if not plotId then
+		Log("Could not determine the current plot ID")
+		return false
+	end
+	local sprinklerType = tool:GetAttribute("Sprinkler") or sprinklerName
+	local placed = FireRemote("PlaceSprinkler", position, sprinklerType, tool, plotId)
 	if not placed then
 		Log("Placement failed: " .. sprinklerName)
 		return false
@@ -3738,6 +3745,7 @@ end
 
 function Gear.PlaceSprinklers()
 	if not GAG then return end
+	local placedAny = false
 
 	local config = Config and Config.Get and Config.Get("Place Sprinklers") or {}
 	local farm = GetFarm()
@@ -3787,7 +3795,7 @@ function Gear.PlaceSprinklers()
 		local positions = Gear.CalculateSprinklerLayout(farm, available, coverageMode)
 
 		for i, pos in ipairs(positions) do
-			Gear.PlaceSprinkler(bestSprinkler, pos)
+			if Gear.PlaceSprinkler(bestSprinkler, pos) then placedAny = true end
 		end
 	end
 
@@ -3798,11 +3806,13 @@ function Gear.PlaceSprinklers()
 				Log("Placing " .. available .. "x " .. sprinklerName)
 				local positions = Gear.CalculateSprinklerLayout(farm, available, coverageMode)
 				for i, pos in ipairs(positions) do
-					Gear.PlaceSprinkler(sprinklerName, pos)
+					if Gear.PlaceSprinkler(sprinklerName, pos) then placedAny = true end
 				end
 			end
 		end
 	end
+
+	return placedAny
 end
 
 function Gear.ProcessKeepGear()
@@ -3860,8 +3870,7 @@ function Gear.Start()
 	while GAG and GAG.Running do
 		local success, err = pcall(function()
 			if not sprinklersPlaced then
-				Gear.PlaceSprinklers()
-				sprinklersPlaced = true
+				sprinklersPlaced = Gear.PlaceSprinklers() == true
 			end
 
 			Gear.ProcessKeepGear()
@@ -4183,35 +4192,30 @@ function Mail.Start(GAG)
 
 		local sendTo = Config.Get(GAG, "Mail.Send To")
 		if sendTo and sendTo ~= "" then
-			local targetPlayer = findPlayerByUsername(sendTo)
-			if not targetPlayer then
-				Utils.Log("[Mail] Target player not found: " .. sendTo)
-			else
-				local sendEvery = Config.Get(GAG, "Mail.Send Every") or 0
-				local delaySeconds = sendEvery > 0 and (sendEvery * 60) or 45
+			local sendEvery = Config.Get(GAG, "Mail.Send Every") or 0
+			local delaySeconds = sendEvery > 0 and (sendEvery * 60) or 45
 
-				local now = tick()
-				if now - lastSendTime >= delaySeconds then
-					local sendableItems = Mail.GetSendableItems(GAG)
+			local now = tick()
+			if now - lastSendTime >= delaySeconds then
+				local sendableItems = Mail.GetSendableItems(GAG)
 
-					if #sendableItems > 0 then
-						Utils.Log("[Mail] Processing " .. #sendableItems .. " items to send")
+				if #sendableItems > 0 then
+					Utils.Log("[Mail] Processing " .. #sendableItems .. " items to send")
 
-						for _, itemData in ipairs(sendableItems) do
-							if not GAG.Running then break end
+					for _, itemData in ipairs(sendableItems) do
+						if not GAG.Running then break end
 
-							Mail.SendItem(GAG, itemData.item, itemData.count, targetPlayer.Name)
-							task.wait(2)
-						end
-
-						lastSendTime = tick()
-					else
-						Utils.Log("[Mail] No items to send")
+						Mail.SendItem(GAG, itemData.item, itemData.count, sendTo)
+						task.wait(2)
 					end
+
+					lastSendTime = tick()
 				else
-					local remaining = math.ceil(delaySeconds - (now - lastSendTime))
-					Utils.Log("[Mail] Next send in " .. remaining .. "s")
+					Utils.Log("[Mail] No items to send")
 				end
+			else
+				local remaining = math.ceil(delaySeconds - (now - lastSendTime))
+				Utils.Log("[Mail] Next send in " .. remaining .. "s")
 			end
 		end
 

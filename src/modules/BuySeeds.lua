@@ -47,7 +47,7 @@ function BuySeeds.GetShopStock(GAG)
 	local stock = {}
 
 	local shopItems = Utils.GetShopItems("Seeds") or Utils.GetShopItems("SeedShop")
-	if shopItems and type(shopItems) == "table" then
+	if type(shopItems) == "table" and #shopItems > 0 then
 		for _, item in ipairs(shopItems) do
 			local seedName = item.Name or item.ItemName or item[1]
 			local price = item.Price or item.Cost or item[2]
@@ -60,6 +60,8 @@ function BuySeeds.GetShopStock(GAG)
 				}
 			end
 		end
+		GAG.State.SeedShopStock = stock
+		GAG.State.LastShopRefresh = tick()
 		return stock
 	end
 
@@ -82,22 +84,13 @@ function BuySeeds.GetShopStock(GAG)
 							end
 							stock[seedName] = {
 								price = price,
-								available = not child.Visible or child.Visible,
+								available = child.Visible,
 								stock = -1,
 							}
 						end
 					end
 				end
 			end
-		end
-	end
-
-	if next(stock) == nil then
-		local ok, result = pcall(function()
-			return Utils.FireRemote("GetShopStock", "Seeds")
-		end)
-		if ok and type(result) == "table" then
-			stock = result
 		end
 	end
 

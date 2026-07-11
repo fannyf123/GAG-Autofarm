@@ -15,6 +15,7 @@ end
 local TARGETS = {
     "Shovel.UseShovel",
     "Plant.PlantSeed",
+    "Place.PlaceSprinkler",
 }
 
 local state = {
@@ -180,5 +181,5 @@ for _, path in ipairs(TARGETS) do
     summarizeAction(path, action)
     installHook(path, action)
 end
-add("Trigger one manual shovel action and one PlantSeed action, then run GAGRemoteFilterCopy().")
+add("Trigger one manual shovel, PlantSeed, and sprinkler placement action, then run GAGRemoteFilterCopy().")
 copyReport()

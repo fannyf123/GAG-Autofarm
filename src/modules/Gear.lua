@@ -225,7 +225,13 @@ function Gear.PlaceSprinkler(sprinklerName, position)
 	TeleportTo(position)
 	Sleep(0.2)
 
-	local placed = FireRemote("Networking.GearShop.EquipGear", sprinklerName, position)
+	local plotId = player and player:GetAttribute("PlotId")
+	if not plotId then
+		Log("Could not determine the current plot ID")
+		return false
+	end
+	local sprinklerType = tool:GetAttribute("Sprinkler") or sprinklerName
+	local placed = FireRemote("PlaceSprinkler", position, sprinklerType, tool, plotId)
 	if not placed then
 		Log("Placement failed: " .. sprinklerName)
 		return false
@@ -245,6 +251,7 @@ end
 
 function Gear.PlaceSprinklers()
 	if not GAG then return end
+	local placedAny = false
 
 	local config = Config and Config.Get and Config.Get("Place Sprinklers") or {}
 	local farm = GetFarm()
@@ -294,7 +301,7 @@ function Gear.PlaceSprinklers()
 		local positions = Gear.CalculateSprinklerLayout(farm, available, coverageMode)
 
 		for i, pos in ipairs(positions) do
-			Gear.PlaceSprinkler(bestSprinkler, pos)
+			if Gear.PlaceSprinkler(bestSprinkler, pos) then placedAny = true end
 		end
 	end
 
@@ -305,11 +312,13 @@ function Gear.PlaceSprinklers()
 				Log("Placing " .. available .. "x " .. sprinklerName)
 				local positions = Gear.CalculateSprinklerLayout(farm, available, coverageMode)
 				for i, pos in ipairs(positions) do
-					Gear.PlaceSprinkler(sprinklerName, pos)
+					if Gear.PlaceSprinkler(sprinklerName, pos) then placedAny = true end
 				end
 			end
 		end
 	end
+
+	return placedAny
 end
 
 function Gear.ProcessKeepGear()
@@ -367,8 +376,7 @@ function Gear.Start()
 	while GAG and GAG.Running do
 		local success, err = pcall(function()
 			if not sprinklersPlaced then
-				Gear.PlaceSprinklers()
-				sprinklersPlaced = true
+				sprinklersPlaced = Gear.PlaceSprinklers() == true
 			end
 
 			Gear.ProcessKeepGear()
