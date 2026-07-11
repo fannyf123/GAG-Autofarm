@@ -2157,6 +2157,9 @@ local S = {
 }
 local currentPreset = "Manual"
 local autoFarmControl
+local autoPlantControl
+local autoHarvestControl
+local autoSellControl
 local autoReplaceControl
 local Stats = { bought = 0, planted = 0, harvested = 0, sold = 0, earned = 0,
     sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock(),
@@ -2212,8 +2215,8 @@ local GAG_PRESETS = {
         Misc = { ["Auto Return To Garden"] = true },
     },
     Balanced = {
-        Harvest = { ["Sell At"] = 85, ["Sell Every"] = 40 },
-        Planting = { Layout = "compact", ["Minimum Seed"] = "Bamboo", ["Keep Seeds"] = { ["Dragon's Breath"] = 5, ["Moon Bloom"] = 5, ["Gold"] = 5, ["Rainbow"] = 5 } },
+        Harvest = { ["Auto Harvest"] = true, ["Sell At"] = 85, ["Sell Every"] = 40 },
+        Planting = { ["Auto Plant"] = true, ["Buy Seeds"] = { "Bamboo" }, Layout = "compact", ["Minimum Seed"] = "Bamboo", ["Keep Seeds"] = { ["Dragon's Breath"] = 5, ["Moon Bloom"] = 5, ["Gold"] = 5, ["Rainbow"] = 5 } },
         Money = { ["Keep Cash"] = 15000, ["Auto Expand Plot"] = true, ["Expand If Over"] = 1500000, ["Auto Replace Plants"] = true },
         Pets = { Buy = { "Unicorn", "GoldenDragonfly", ["Deer"] = 6 }, Equip = { "Unicorn", "GoldenDragonfly", "Deer" }, ["Auto Buy Slots"] = true },
         Gear = { ["Keep Cash"] = 15000, ["Sprinkler Coverage"] = "concentrate", ["Place Sprinklers"] = { ["best"] = 4 }, ["Best Sprinkler Up To"] = "Rare Sprinkler" },
@@ -2342,11 +2345,19 @@ local function gagApplyConfig(raw)
     end
     gagApplyPerformance(perf)
 
-    -- A preset represents a complete farm mode. Keep the master worker on so
-    -- its harvest/sell workers continue even when planting is cap-blocked.
+    -- A preset is a one-click farm mode. Start every core worker explicitly
+    -- instead of relying on individual preset fields to enable them.
     if presetName then
         S.autoFarm = true
+        S.autoPlant = true
+        S.autoHarvest = true
+        S.autoSell = true
         if autoFarmControl then autoFarmControl:Set(true, false) end
+        if autoPlantControl then autoPlantControl:Set(true, false) end
+        if autoHarvestControl then autoHarvestControl:Set(true, false) end
+        if autoSellControl then autoSellControl:Set(true, false) end
+        currentPreset = presetName
+        Stats.lastAction = "preset " .. tostring(presetName) .. ": farm started"
     end
     if presetName then warn("[GAGConfig] Applied preset: " .. tostring(presetName)) else warn("[GAGConfig] Applied custom config") end
 end
@@ -3540,6 +3551,9 @@ local function setManualOff()
     S.autoEgg = false; S.autoCrate = false; S.autoPack = false; S.autoGear = false; S.autoSteal = false
     S.autoMail = false; S.autoAcceptGift = false; S.autoHop = false; S.allowServerHop = false; S.autoCodes = false; S.ultraPerformance = false
     if autoFarmControl then autoFarmControl:Set(false, false) end
+    if autoPlantControl then autoPlantControl:Set(false, false) end
+    if autoHarvestControl then autoHarvestControl:Set(false, false) end
+    if autoSellControl then autoSellControl:Set(false, false) end
     if autoReplaceControl then autoReplaceControl:Set(false, false) end
     currentPreset = "Manual"
     warn("[GAGConfig] Manual selected: all automation OFF")
@@ -3626,10 +3640,10 @@ secBuy:Slider("Maksimum Beli per Putaran", 50, 1, 50, function(v) S.buyPerTick =
 local secPlant = farmTab:Section("3. Tanam, Panen, Jual")
 local plantOpts = { "Best owned" }; for _, n in ipairs(SEED_NAMES) do plantOpts[#plantOpts + 1] = n end
 secPlant:Dropdown("Seed untuk Ditanam", plantOpts, "Best owned", function(v) S.plantSeed = v end)
-secPlant:Toggle("Tanam Otomatis", false, function(v) S.autoPlant = v end)
+autoPlantControl = secPlant:Toggle("Tanam Otomatis", S.autoPlant, function(v) S.autoPlant = v end)
 secPlant:Slider("Jarak Tanam", 4, 2, 10, function(v) S.plantSpacing = v end)
-secPlant:Toggle("Panen Buah Matang", false, function(v) S.autoHarvest = v end)
-secPlant:Toggle("Jual Otomatis", false, function(v) S.autoSell = v end)
+autoHarvestControl = secPlant:Toggle("Panen Buah Matang", S.autoHarvest, function(v) S.autoHarvest = v end)
+autoSellControl = secPlant:Toggle("Jual Otomatis", S.autoSell, function(v) S.autoSell = v end)
 secPlant:Slider("Jual Saat Buah", 85, 1, 200, function(v) S.sellAt = math.floor(v) end)
 autoReplaceControl = secPlant:Toggle("Ganti Tanaman Saat Penuh", S.autoReplacePlants, function(v) S.autoReplacePlants = v end)
 
