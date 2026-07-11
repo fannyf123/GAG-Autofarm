@@ -1991,11 +1991,18 @@ local function stepShovelForPlanting(seedName)
     if not due("autoShovelReplace", 1.5) then return 0 end
     local targets = targetPlantMap(seedName)
     local seedReady = countTargetSeedTools(targets)
-    if seedReady <= 0 then return 0 end
+    if seedReady <= 0 then
+        Stats.shovelLastError = "waiting for an eligible seed tool"
+        Stats.lastAction = "replace waiting for eligible seed"
+        return 0
+    end
     local plot = myPlot(); local plants = plot and plot:FindFirstChild("Plants")
-    if not plants then return 0 end
+    if not plants then
+        Stats.shovelLastError = "Plants folder was not found in own plot"
+        return 0
+    end
     local maxRemove = math.min(seedReady, tonumber(S.shovelPerCycle) or 8)
-    local removed = 0
+    local removed, replaceable = 0, 0
     for _, m in ipairs(plants:GetChildren()) do
         if removed >= maxRemove or not (S.autoFarm or S.autoPlant) then break end
         local name = plantModelName(m)
@@ -2003,6 +2010,7 @@ local function stepShovelForPlanting(seedName)
         local protected = (name and targets[name]) or S.neverSellFruit[name] or S.neverSellMut[mutation]
             or mutation == "Gold" or mutation == "Rainbow" or mutation == "Starstruck"
         if not protected then
+            replaceable += 1
             if shovelPlantModel(m) then
                 removed += 1
                 plantCapBlockedUntil = 0
@@ -2010,6 +2018,10 @@ local function stepShovelForPlanting(seedName)
                 task.wait(0.12)
             end
         end
+    end
+    if removed == 0 and replaceable == 0 then
+        Stats.shovelLastError = "all plants are target or protected"
+        Stats.lastAction = "replace skipped: target/protected plants"
     end
     return removed
 end
@@ -2145,6 +2157,7 @@ local S = {
 }
 local currentPreset = "Manual"
 local autoFarmControl
+local autoReplaceControl
 local Stats = { bought = 0, planted = 0, harvested = 0, sold = 0, earned = 0,
     sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock(),
     state = "IDLE", lastAction = "idle", petLast = "idle", plantLastError = "none", shovelLastError = "none", webhookLastOk = 0, webhookNextAt = 0, webhookLastError = "none" }
@@ -2288,7 +2301,10 @@ local function gagApplyConfig(raw)
     if type(p["Buy Seeds"]) == "table" then gagSetMapFromList(S.buySeeds, p["Buy Seeds"]); S.autoBuy = picked(S.buySeeds) end
 
     if m["Auto Expand Plot"] ~= nil then S.autoExpand = m["Auto Expand Plot"] == true end
-    if m["Auto Replace Plants"] ~= nil then S.autoReplacePlants = m["Auto Replace Plants"] == true end
+    if m["Auto Replace Plants"] ~= nil then
+        S.autoReplacePlants = m["Auto Replace Plants"] == true
+        if autoReplaceControl then autoReplaceControl:Set(S.autoReplacePlants, false) end
+    end
     if misc["Auto Daily Deal"] ~= nil then S.autoDaily = misc["Auto Daily Deal"] == true end
 
     if type(pets.Buy) == "table" then gagSetMapFromList(S.buyPets, pets.Buy); S.autoBuyPets = picked(S.buyPets); local max=0; for _,v in pairs(pets.Buy) do if type(v)=="number" and v>max then max=v end end; if max>0 then S.maxPetPrice=1000000 end end
@@ -3524,6 +3540,7 @@ local function setManualOff()
     S.autoEgg = false; S.autoCrate = false; S.autoPack = false; S.autoGear = false; S.autoSteal = false
     S.autoMail = false; S.autoAcceptGift = false; S.autoHop = false; S.allowServerHop = false; S.autoCodes = false; S.ultraPerformance = false
     if autoFarmControl then autoFarmControl:Set(false, false) end
+    if autoReplaceControl then autoReplaceControl:Set(false, false) end
     currentPreset = "Manual"
     warn("[GAGConfig] Manual selected: all automation OFF")
 end
@@ -3614,7 +3631,7 @@ secPlant:Slider("Jarak Tanam", 4, 2, 10, function(v) S.plantSpacing = v end)
 secPlant:Toggle("Panen Buah Matang", false, function(v) S.autoHarvest = v end)
 secPlant:Toggle("Jual Otomatis", false, function(v) S.autoSell = v end)
 secPlant:Slider("Jual Saat Buah", 85, 1, 200, function(v) S.sellAt = math.floor(v) end)
-secPlant:Toggle("Ganti Tanaman Saat Penuh", false, function(v) S.autoReplacePlants = v end)
+autoReplaceControl = secPlant:Toggle("Ganti Tanaman Saat Penuh", S.autoReplacePlants, function(v) S.autoReplacePlants = v end)
 
 local secSpeed = farmTab:Section("Kecepatan & Debug (Lanjutan)")
 secSpeed:Toggle("Panen Cepat untuk Kebun Besar", true, function(v) S.spamHarvest = v end)
