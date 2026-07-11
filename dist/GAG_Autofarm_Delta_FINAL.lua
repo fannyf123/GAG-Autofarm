@@ -2002,7 +2002,7 @@ end
 
 local function stepShovelForPlanting(seedName, maxToRemove)
     if not S.autoReplacePlants then return 0 end
-    if not due("autoShovelReplace", 1.5) then return 0 end
+    if not due("autoShovelReplace", S.replaceFieldWithTarget and 0.6 or 1.5) then return 0 end
     local targets = targetPlantMap(seedName)
     local seedReady = countTargetSeedTools(targets)
     if seedReady <= 0 then
@@ -2666,17 +2666,17 @@ local function stepPlant()
     tool = heldToolByAttr("SeedTool"); if not tool then return end
     local seedAttr = normalizeSeedName(tool:GetAttribute("SeedTool") or tool:GetAttribute("SeedName") or tool.Name)
     if not seedAttr then return end
-    -- Conversion mode removes one non-target plant, then reserves that slot
-    -- for the selected seed before another plant can be removed.
-    if S.autoReplacePlants and S.replaceFieldWithTarget and not replacementSlotPending then
-        if stepShovelForPlanting(seedAttr, 1) > 0 then
-            replacementSlotPending = true
-            Stats.lastAction = "replacing field with " .. tostring(seedAttr)
-            return
-        end
-    end
     local empty = emptyPlantPositions(S.plantSpacing)
     if #empty == 0 then
+        -- Fill every genuine empty slot before conversion. This prevents a
+        -- partially empty field from replacing only one plant at a time.
+        if S.autoReplacePlants and S.replaceFieldWithTarget and not replacementSlotPending then
+            if stepShovelForPlanting(seedAttr, 1) > 0 then
+                replacementSlotPending = true
+                Stats.lastAction = "replacing field with " .. tostring(seedAttr)
+                return
+            end
+        end
         stepShovelForPlanting(seedAttr)
         return
     end
