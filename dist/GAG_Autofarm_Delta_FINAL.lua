@@ -2595,6 +2595,15 @@ end
 local harvestSellPending, sellUrgent, harvestScan = nil, nil, { at = 0, list = {}, pending = false }
 local function stepPlant()
     Stats.state = "PLANT"
+    if S.autoGardenTeleport and due("plantGardenTeleport", 3) then
+        local char = LocalPlayer.Character
+        local base, root = myBasePos(), char and char:FindFirstChild("HumanoidRootPart")
+        if base and root and (root.Position - base).Magnitude > 55 then
+            pcall(function() root.CFrame = CFrame.new(base + Vector3.new(0, 4, 0)) end)
+            Stats.lastAction = "teleported to garden for planting"
+            task.wait(0.35)
+        end
+    end
     if plantCapBlocked() then
         Stats.lastAction = "plant cap reached"
         if S.autoReplacePlants and not replacementSlotPending then
@@ -3784,7 +3793,7 @@ statLabel = secStatus:Label("—")
 local secMaster = farmTab:Section("1. Jalankan Farm")
 secMaster:Label("Paling mudah: aktifkan Auto-Farm, lalu pilih seed di bawah.")
 farmControls.autoFarm = secMaster:Toggle("Auto-Farm", S.autoFarm, function(v) S.autoFarm = v end)
-secMaster:Toggle("Teleport ke Kebun Saat Panen", S.autoGardenTeleport, function(v) S.autoGardenTeleport = v end)
+secMaster:Toggle("Teleport ke Kebun Saat Tanam/Panen", S.autoGardenTeleport, function(v) S.autoGardenTeleport = v end)
 secMaster:Toggle("Perluas Kebun Otomatis", false, function(v) S.autoExpand = v end)
 secMaster:Toggle("Daily Deal Otomatis", false, function(v) S.autoDaily = v end)
 
