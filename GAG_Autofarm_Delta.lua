@@ -2215,7 +2215,10 @@ local GAG_PRESETS = {
         Planting = { ["Auto Plant"] = true, ["Buy Seeds"] = { "Bamboo" }, ["Only Plant"] = { "Bamboo" }, Layout = "compact", ["Minimum Seed"] = "Bamboo", ["Keep Seeds"] = { ["Dragon's Breath"] = 5, ["Moon Bloom"] = 5, ["Gold"] = 5, ["Rainbow"] = 5 } },
         Money = { ["Keep Cash"] = 15000, ["Auto Expand Plot"] = true, ["Expand If Over"] = 1500000, ["Auto Replace Plants"] = true, ["Replace Field With Target"] = true },
         Pets = { Buy = { "Unicorn", "GoldenDragonfly", ["Deer"] = 6 }, Equip = { "Unicorn", "GoldenDragonfly", "Deer" }, ["Auto Buy Slots"] = true },
-        Gear = { ["Keep Cash"] = 15000, ["Sprinkler Coverage"] = "concentrate", ["Place Sprinklers"] = { ["best"] = 4 }, ["Best Sprinkler Up To"] = "Rare Sprinkler" },
+        Gear = { ["Keep Cash"] = 15000, ["Sprinkler Coverage"] = "concentrate", ["Place Sprinklers"] = { ["best"] = 4 }, ["Best Sprinkler Up To"] = "Rare Sprinkler", ["Auto Water"] = true },
+        Opening = { Eggs = true, Crates = true, SeedPacks = true },
+        Skills = { ["Auto Upgrade Backpack"] = true },
+        Performance = { ["Low Graphics"] = true },
         ["Event Seeds"] = { ["Auto Claim"] = true },
         Mail = { ["Auto Claim"] = true },
         Misc = { ["Auto Return To Garden"] = true },
@@ -2263,7 +2266,11 @@ local applyFpsBoost, applyUltraPerformance
 local function gagApplyPerformance(perf)
     if type(perf) ~= "table" then return end
     if perf["FPS Cap"] and setfpscap then pcall(setfpscap, tonumber(perf["FPS Cap"]) or 0) end
-    if perf["Low Graphics"] ~= nil then S.fpsBoost = perf["Low Graphics"] == true; pcall(function() applyFpsBoost(S.fpsBoost) end) end
+    if perf["Low Graphics"] ~= nil then
+        S.fpsBoost = perf["Low Graphics"] == true
+        if farmControls.fpsBoost then farmControls.fpsBoost:Set(S.fpsBoost, false) end
+        pcall(function() applyFpsBoost(S.fpsBoost) end)
+    end
     if perf["Disable 3D"] ~= nil or perf["Ultra Performance"] ~= nil then
         S.ultraPerformance = (perf["Disable 3D"] == true) or (perf["Ultra Performance"] == true)
         pcall(function() applyUltraPerformance(S.ultraPerformance) end)
@@ -2277,6 +2284,7 @@ local function gagApplyConfig(raw)
     local h, p, m = cfg.Harvest or {}, cfg.Planting or {}, cfg.Money or {}
     local pets, gear, mail = cfg.Pets or {}, cfg.Gear or {}, cfg.Mail or {}
     local misc, perf = cfg.Misc or {}, cfg.Performance or {}
+    local opening, skills = cfg.Opening or {}, cfg.Skills or {}
     local webhook = cfg.Webhook or cfg.webhook or {}
 
     -- Presets are complete modes. Clear options from the previous mode before
@@ -2288,12 +2296,21 @@ local function gagApplyConfig(raw)
         gagSetMapFromList(S.onlyHarvest, {}); gagSetMapFromList(S.dontHarvest, {})
         gagSetMapFromList(S.neverSellFruit, {}); gagSetMapFromList(S.neverSellMut, {})
         S.autoExpand = false; S.autoDaily = false; S.autoReplacePlants = false; S.replaceFieldWithTarget = false
+        S.autoSprinkler = false; S.autoWater = false; S.autoSkill = false; S.skillStats = {}
+        S.autoEgg = false; S.autoCrate = false; S.autoPack = false; S.fpsBoost = false
         S.autoSprinkler = false; S.sprinklerTarget = 4; S.bestSprinklerUpTo = ""; S.autoGear = false; gagSetMapFromList(S.gearBuy, {})
         S.autoBuyPets = false; S.autoEquipPets = false; S.autoPetSlot = false; S.maxPetPrice = 25000
         gagSetMapFromList(S.buyPets, {}); gagSetMapFromList(S.equipPets, {})
         S.autoEventSeedClaim = false; S.autoMail = false; S.mailSendTo = ""; S.mailSend = {}
         if farmControls.autoReplace then farmControls.autoReplace:Set(false, false) end
         if farmControls.replaceField then farmControls.replaceField:Set(false, false) end
+        if farmControls.autoWater then farmControls.autoWater:Set(false, false) end
+        if farmControls.autoSkill then farmControls.autoSkill:Set(false, false) end
+        if farmControls.autoEgg then farmControls.autoEgg:Set(false, false) end
+        if farmControls.autoCrate then farmControls.autoCrate:Set(false, false) end
+        if farmControls.autoPack then farmControls.autoPack:Set(false, false) end
+        if farmControls.fpsBoost then farmControls.fpsBoost:Set(false, false) end
+        pcall(function() applyFpsBoost(false) end)
     end
 
     if h["Auto Harvest"] ~= nil then S.autoHarvest = h["Auto Harvest"] == true; S.autoSell = S.autoHarvest end
@@ -2341,6 +2358,19 @@ local function gagApplyConfig(raw)
         if target > 0 then S.sprinklerTarget = target end
     end
     if type(gear["Best Sprinkler Up To"]) == "string" then S.bestSprinklerUpTo = gear["Best Sprinkler Up To"] end
+    if gear["Auto Water"] ~= nil then
+        S.autoWater = gear["Auto Water"] == true
+        if farmControls.autoWater then farmControls.autoWater:Set(S.autoWater, false) end
+    end
+
+    if skills["Auto Upgrade Backpack"] ~= nil then
+        S.skillStats = skills["Auto Upgrade Backpack"] == true and { MaxBackpack = true } or {}
+        S.autoSkill = skills["Auto Upgrade Backpack"] == true
+        if farmControls.autoSkill then farmControls.autoSkill:Set(S.autoSkill, false) end
+    end
+    if opening.Eggs ~= nil then S.autoEgg = opening.Eggs == true; if farmControls.autoEgg then farmControls.autoEgg:Set(S.autoEgg, false) end end
+    if opening.Crates ~= nil then S.autoCrate = opening.Crates == true; if farmControls.autoCrate then farmControls.autoCrate:Set(S.autoCrate, false) end end
+    if opening.SeedPacks ~= nil then S.autoPack = opening.SeedPacks == true; if farmControls.autoPack then farmControls.autoPack:Set(S.autoPack, false) end end
 
     if cfg["Event Seeds"] and cfg["Event Seeds"]["Auto Claim"] ~= nil then
         S.autoEventSeedClaim = cfg["Event Seeds"]["Auto Claim"] == true
@@ -3772,13 +3802,13 @@ secSpr:Toggle("Pasang Sprinkler Otomatis", false, function(v) S.autoSprinkler = 
 secSpr:Slider("Jumlah Sprinkler", 4, 1, 12, function(v) S.sprinklerTarget = math.floor(v) end)
 secSpr:Dropdown("Sprinkler Terbaik Sampai", SPRINKLER_GEAR_NAMES, "", function(v) S.bestSprinklerUpTo = tostring(v or "") end)
 secSpr:Slider("Jeda Sprinkler", 30, 10, 120, function(v) S.sprinklerInterval = v end)
-secSpr:Toggle("Siram Otomatis", false, function(v) S.autoWater = v end)
+farmControls.autoWater = secSpr:Toggle("Siram Otomatis", S.autoWater, function(v) S.autoWater = v end)
 secSpr:Slider("Jeda Siram", 8, 2, 60, function(v) S.waterInterval = v end)
 
 local secSkill = boostsTab:Section("Skill Point")
 secSkill:Dropdown("Stat untuk Dinaikkan", { "BaseSpeed", "BaseJump", "ShovelPower", "MaxBackpack" }, {}, function(sel) pickMulti(sel, S.skillStats) end)
-secSkill:Button("Utamakan Kapasitas Tas", function() S.skillStats = { MaxBackpack = true }; S.autoSkill = true; warn("[Skill] Auto Upgrade Inventory ON") end)
-secSkill:Toggle("Pakai Skill Point Otomatis", false, function(v) S.autoSkill = v end)
+secSkill:Button("Utamakan Kapasitas Tas", function() S.skillStats = { MaxBackpack = true }; S.autoSkill = true; if farmControls.autoSkill then farmControls.autoSkill:Set(true, false) end; warn("[Skill] Auto Upgrade Inventory ON") end)
+farmControls.autoSkill = secSkill:Toggle("Pakai Skill Point Otomatis", S.autoSkill, function(v) S.autoSkill = v end)
 
 end
 
@@ -3802,9 +3832,9 @@ end
 -- ---- EGGS & CRATES ----
 do
 local secOpen = toolsTab:Section("Buka Item")
-secOpen:Toggle("Buka Egg Otomatis", false, function(v) S.autoEgg = v end)
-secOpen:Toggle("Buka Crate Otomatis", false, function(v) S.autoCrate = v end)
-secOpen:Toggle("Buka Seed Pack Otomatis", false, function(v) S.autoPack = v end)
+farmControls.autoEgg = secOpen:Toggle("Buka Egg Otomatis", S.autoEgg, function(v) S.autoEgg = v end)
+farmControls.autoCrate = secOpen:Toggle("Buka Crate Otomatis", S.autoCrate, function(v) S.autoCrate = v end)
+farmControls.autoPack = secOpen:Toggle("Buka Seed Pack Otomatis", S.autoPack, function(v) S.autoPack = v end)
 secOpen:Slider("Jeda Membuka", 4, 1, 30, function(v) S.openInterval = v end)
 local secOpenInfo = toolsTab:Section("Catatan")
 secOpenInfo:Label("Membuka semua item pada kategori yang dipilih.")
@@ -3861,7 +3891,7 @@ secPreset:Label("Default Manual. Pilih mode bila ingin pengaturan otomatis.")
 secPreset:Dropdown("Pilih Mode", { "Manual", "Starter", "Balanced", "Rich", "AltToMain", "LowPC" }, "Manual", applyGuiPreset)
 
 local secPerf = settingsTab:Section("Tampilan & Performa")
-secPerf:Toggle("FPS Boost", false, function(v) S.fpsBoost = v; applyFpsBoost(v) end)
+farmControls.fpsBoost = secPerf:Toggle("FPS Boost", S.fpsBoost, function(v) S.fpsBoost = v; applyFpsBoost(v) end)
 secPerf:Toggle("Ultra Hemat (Matikan 3D)", false, function(v) applyUltraPerformance(v) end)
 secPerf:Label("Ultra Hemat membuat layar gelap, tetapi GUI tetap berjalan.")
 secPerf:Button("Tutup Hub & Hentikan Semua", function() S.killed = true; pcall(function() applyUltraPerformance(false) end); pcall(function() ui:Destroy() end) end)
