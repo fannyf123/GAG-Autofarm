@@ -2146,6 +2146,27 @@ local function myBasePos()
     return ok and piv or nil
 end
 
+-- Use the game's own Garden button when it is available. It knows the exact
+-- field destination for the current map; coordinate teleport is only fallback.
+sharedEnv.GAGUseGardenTeleport = function()
+    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not playerGui then return false end
+    for _, button in ipairs(playerGui:GetDescendants()) do
+        if button:IsA("GuiButton") and button.Visible then
+            local text = button:IsA("TextButton") and button.Text or ""
+            if text == "" then
+                local label = button:FindFirstChildWhichIsA("TextLabel", true)
+                text = label and label.Text or button.Name
+            end
+            if string.lower(tostring(text)) == "garden" then
+                local ok = pcall(function() button:Activate() end)
+                if ok then return true end
+            end
+        end
+    end
+    return false
+end
+
 -- // ============================================================ \\ --
 -- //                          STATE                              \\ --
 -- // ============================================================ \\ --
@@ -2607,12 +2628,17 @@ local harvestSellPending, sellUrgent, harvestScan = nil, nil, { at = 0, list = {
 local function stepPlant()
     Stats.state = "PLANT"
     if S.autoGardenTeleport and due("plantGardenTeleport", 3) then
-        local char = LocalPlayer.Character
-        local base, root = myBasePos(), char and char:FindFirstChild("HumanoidRootPart")
-        if base and root and (root.Position - base).Magnitude > 55 then
-            pcall(function() root.CFrame = CFrame.new(base + Vector3.new(0, 4, 0)) end)
-            Stats.lastAction = "teleported to garden for planting"
+        if sharedEnv.GAGUseGardenTeleport() then
+            Stats.lastAction = "used Garden button for planting"
             task.wait(0.35)
+        else
+            local char = LocalPlayer.Character
+            local base, root = myBasePos(), char and char:FindFirstChild("HumanoidRootPart")
+            if base and root and (root.Position - base).Magnitude > 55 then
+                pcall(function() root.CFrame = CFrame.new(base + Vector3.new(0, 4, 0)) end)
+                Stats.lastAction = "teleported to garden for planting"
+                task.wait(0.35)
+            end
         end
     end
     if plantCapBlocked() then
@@ -2760,12 +2786,17 @@ local function stepHarvest(list)
         return
     end
     if S.autoGardenTeleport and due("harvestGardenTeleport", 3) then
-        local char = LocalPlayer.Character
-        local base, root = myBasePos(), char and char:FindFirstChild("HumanoidRootPart")
-        if base and root and (root.Position - base).Magnitude > 55 then
-            pcall(function() root.CFrame = CFrame.new(base + Vector3.new(0, 4, 0)) end)
-            Stats.lastAction = "teleported to garden for harvest"
+        if sharedEnv.GAGUseGardenTeleport() then
+            Stats.lastAction = "used Garden button for harvest"
             task.wait(0.35)
+        else
+            local char = LocalPlayer.Character
+            local base, root = myBasePos(), char and char:FindFirstChild("HumanoidRootPart")
+            if base and root and (root.Position - base).Magnitude > 55 then
+                pcall(function() root.CFrame = CFrame.new(base + Vector3.new(0, 4, 0)) end)
+                Stats.lastAction = "teleported to garden for harvest"
+                task.wait(0.35)
+            end
         end
     end
     local cap = maxFruitCap()
