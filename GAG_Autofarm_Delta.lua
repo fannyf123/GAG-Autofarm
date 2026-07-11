@@ -2119,9 +2119,20 @@ local function atPosition(pos, fn)
     if hrp and hrp.Parent then pcall(function() hrp.CFrame = saved end) end
     return ok and result ~= false
 end
--- own-garden anchor: standing inside it sets IsInOwnGarden -> the server banks carried stolen fruit
+-- Prefer the actual plant field over broad garden-zone tags; some maps include
+-- the sell area in those tags, which sent the farm worker to the wrong place.
 local function myBasePos()
     local plot = myPlot(); if not plot then return nil end
+    local plants = existingPlantPositions()
+    if #plants > 0 then
+        local pos = plants[math.ceil(#plants / 2)]
+        return pos + Vector3.new(0, 4, 0)
+    end
+    local areas = myPlantAreas()
+    if #areas > 0 then
+        local area = areas[1]
+        return area.Position + Vector3.new(0, area.Size.Y / 2 + 4, 0)
+    end
     for _, tag in ipairs({ "GardenTotalArea", "GardenZone" }) do
         for _, p in ipairs(CollectionService:GetTagged(tag)) do
             if p:IsA("BasePart") and p:IsDescendantOf(plot) then
