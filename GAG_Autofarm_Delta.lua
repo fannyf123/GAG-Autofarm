@@ -2130,7 +2130,7 @@ local S = {
     -- buy / plant / harvest / sell
     autoBuy = false, buySeeds = {}, buyInterval = 5, buyPerTick = 8,
     autoPlant = false, plantSpacing = 4, plantSeed = "Best owned", plantPlan = {}, plantLimit = 0, keepSeeds = {}, minimumSeed = "",
-    autoHarvest = false, harvestInterval = 2, harvestDelay = 0.02, spamHarvest = false, turboFarm = false, spamHarvestBatch = 50, onlyHarvest = {}, dontHarvest = {}, neverSellFruit = {}, neverSellMut = {},
+    autoHarvest = false, harvestInterval = 2, harvestDelay = 0, spamHarvest = true, turboFarm = true, spamHarvestBatch = 50, onlyHarvest = {}, dontHarvest = {}, neverSellFruit = {}, neverSellMut = {},
     autoSell = false, sellAt = 85, sellInterval = 15,
     autoExpand = false, autoPot = false, autoDaily = false, autoReplacePlants = false, replaceFieldWithTarget = false, shovelPerCycle = 8,
     -- boosts
@@ -2531,7 +2531,7 @@ local function canPlantNow()
     return S.autoReplacePlants == true
 end
 
-local harvestSellPending, sellUrgent
+local harvestSellPending, sellUrgent, harvestScan = nil, nil, { at = 0, list = {}, pending = false }
 local function stepPlant()
     Stats.state = "PLANT"
     if plantCapBlocked() then
@@ -2633,15 +2633,21 @@ end
 harvestSellPending = function()
     if sellUrgent() then return true end
     if not (S.autoFarm or S.autoHarvest) then return false end
-    for _, h in ipairs(ripeHarvests()) do
-        if (not picked(S.onlyHarvest) or S.onlyHarvest[h.name])
-            and not S.dontHarvest[h.name]
-            and not S.neverSellFruit[h.name]
-            and not S.neverSellMut[h.mutation] then
-            return true
+    if os.clock() >= harvestScan.at then
+        harvestScan.at = os.clock() + 0.18
+        harvestScan.list = ripeHarvests()
+        harvestScan.pending = false
+        for _, h in ipairs(harvestScan.list) do
+            if (not picked(S.onlyHarvest) or S.onlyHarvest[h.name])
+                and not S.dontHarvest[h.name]
+                and not S.neverSellFruit[h.name]
+                and not S.neverSellMut[h.mutation] then
+                harvestScan.pending = true
+                break
+            end
         end
     end
-    return false
+    return harvestScan.pending
 end
 local function sellAllNow()
     Stats.state = "SELL"
@@ -2662,10 +2668,10 @@ end
 -- ~20-25 collects/sec. So harvest in a tight cycle and SELL THE MOMENT the pack is full —
 -- never idle holding a full inventory. Firing faster than the server's rate just gets
 -- dropped (delay=0 collected LESS), so harvestDelay paces each collect.
-local function stepHarvest()
+local function stepHarvest(list)
     Stats.state = "HARVEST"
     local sell = (S.autoFarm or S.autoSell)
-    local list = ripeHarvests()
+    list = list or ripeHarvests()
     if #list == 0 then
         if sell and fruitCount() >= math.min(S.sellAt or 85, maxFruitCap()) then
             pcall(sellAllNow)
@@ -2737,7 +2743,7 @@ task.spawn(function()
     while not S.killed do
         if not S.turboFarm and (S.autoFarm or S.autoHarvest) then
             pcall(stepHarvest)
-            task.wait(S.spamHarvest and 0.005 or 0.08)
+            task.wait(S.spamHarvest and 0.005 or 0.02)
         elseif not S.turboFarm and S.autoSell then
             pcall(stepSell)
             task.wait(0.05)
@@ -2753,10 +2759,12 @@ task.spawn(function()
     while not S.killed do
         if S.turboFarm and (S.autoFarm or S.autoHarvest) then
             if harvestSellPending() then
-                pcall(stepHarvest)
+                pcall(stepHarvest, sellUrgent() and {} or harvestScan.list)
+                harvestScan.pending = false
+                harvestScan.at = os.clock() + 0.18
                 task.wait(0.005)
             else
-                task.wait(0.12)
+                task.wait(0.04)
             end
         else
             task.wait(0.25)
@@ -3727,7 +3735,7 @@ farmControls.autoReplace = secPlant:Toggle("Ganti Tanaman Saat Penuh", S.autoRep
 farmControls.replaceField = secPlant:Toggle("Ganti Field ke Seed Pilihan", S.replaceFieldWithTarget, function(v) S.replaceFieldWithTarget = v end)
 
 local secSpeed = farmTab:Section("Kecepatan & Debug (Lanjutan)")
-secSpeed:Label("Mode normal lebih ringan. Aktifkan Turbo hanya bila perangkat kuat.")
+secSpeed:Label("Turbo cepat aktif; scanner panen dibatasi agar lebih ringan.")
 secSpeed:Toggle("Panen Cepat untuk Kebun Besar", S.spamHarvest, function(v) S.spamHarvest = v end)
 secSpeed:Toggle("Worker Turbo", S.turboFarm, function(v) S.turboFarm = v; if v then S.spamHarvest = true end end)
 secSpeed:Slider("Batch Panen", 50, 5, 100, function(v) S.spamHarvestBatch = math.floor(v) end)
