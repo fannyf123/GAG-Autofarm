@@ -1823,8 +1823,16 @@ local function toolsByAttr(attr, wantName)
     local function scan(c)
         if not c then return end
         for _, t in ipairs(c:GetChildren()) do
-            if t:IsA("Tool") and t:GetAttribute(attr) ~= nil then
-                if (not wantName) or t:GetAttribute(attr) == wantName or t.Name == wantName then out[#out + 1] = t end
+            if t:IsA("Tool") then
+                local value = t:GetAttribute(attr)
+                -- Seed tools differ between game builds: some expose SeedTool,
+                -- while others only expose SeedName or encode it in the tool name.
+                if attr == "SeedTool" then value = normalizeSeedName(value or t:GetAttribute("SeedName") or t.Name) end
+                if value ~= nil then
+                    local matches = (not wantName) or value == wantName or t.Name == wantName
+                    if attr == "SeedTool" and wantName then matches = value == normalizeSeedName(wantName) end
+                    if matches then out[#out + 1] = t end
+                end
             end
         end
     end
@@ -1833,8 +1841,14 @@ local function toolsByAttr(attr, wantName)
 end
 local function heldToolByAttr(attr)
     local c = LocalPlayer.Character
-    local t = c and c:FindFirstChildWhichIsA("Tool")
-    if t and t:GetAttribute(attr) ~= nil then return t end
+    if not c then return nil end
+    for _, t in ipairs(c:GetChildren()) do
+        if t:IsA("Tool") then
+            local value = t:GetAttribute(attr)
+            if attr == "SeedTool" then value = normalizeSeedName(value or t:GetAttribute("SeedName") or t.Name) end
+            if value ~= nil then return t end
+        end
+    end
     return nil
 end
 local function equipByAttr(attr, wantName)
@@ -2557,7 +2571,7 @@ local function pickPlantTool()
     -- best owned = rarest/most expensive seed we hold
     local best, bestPrice
     for _, t in ipairs(toolsByAttr("SeedTool")) do
-        local nm = t:GetAttribute("SeedTool")
+        local nm = normalizeSeedName(t:GetAttribute("SeedTool") or t:GetAttribute("SeedName") or t.Name)
         local price = 0
         for _, s in ipairs(CATALOG) do if s.name == nm then price = s.price; break end end
         if seedAllowedByKeep(nm) and seedMeetsMinimum(nm) and not seedPlantBlocked(nm) and (not bestPrice or price > bestPrice) then best, bestPrice = t, price end
@@ -2585,7 +2599,7 @@ local function stepPlant()
         Stats.lastAction = "plant cap reached"
         if S.autoReplacePlants and not replacementSlotPending then
             local replacement = pickPlantTool()
-            stepShovelForPlanting(replacement and replacement:GetAttribute("SeedTool") or nil)
+            stepShovelForPlanting(replacement and normalizeSeedName(replacement:GetAttribute("SeedTool") or replacement:GetAttribute("SeedName") or replacement.Name) or nil)
         end
         return
     end
@@ -2593,7 +2607,7 @@ local function stepPlant()
     if (S.plantLimit or 0) > 0 and totalPlants >= S.plantLimit then
         if S.autoReplacePlants then
             local replacement = pickPlantTool()
-            stepShovelForPlanting(replacement and replacement:GetAttribute("SeedTool") or nil)
+            stepShovelForPlanting(replacement and normalizeSeedName(replacement:GetAttribute("SeedTool") or replacement:GetAttribute("SeedName") or replacement.Name) or nil)
         end
         return
     end
@@ -2604,7 +2618,7 @@ local function stepPlant()
         task.wait(0.08) 
     end
     tool = heldToolByAttr("SeedTool"); if not tool then return end
-    local seedAttr = tool:GetAttribute("SeedTool")
+    local seedAttr = normalizeSeedName(tool:GetAttribute("SeedTool") or tool:GetAttribute("SeedName") or tool.Name)
     if not seedAttr then return end
     -- Conversion mode removes one non-target plant, then reserves that slot
     -- for the selected seed before another plant can be removed.
@@ -2631,7 +2645,7 @@ local function stepPlant()
                 pcall(function() hum:EquipTool(nx) end)
                 task.wait(0.06)
                 tool = heldToolByAttr("SeedTool"); if not tool then return end
-                seedAttr = tool:GetAttribute("SeedTool")
+                seedAttr = normalizeSeedName(tool:GetAttribute("SeedTool") or tool:GetAttribute("SeedName") or tool.Name)
                 if not seedAttr then return end
             end
             local _, plantsBefore = plantCounts()
@@ -3606,7 +3620,7 @@ sharedEnv.GAGPlantCapDebug = function()
     local empty = emptyPlantPositions(S.plantSpacing)
     local first = plants and plants:GetChildren()[1] or nil
     local tool = pickPlantTool()
-    local seed = tool and tool:GetAttribute("SeedTool") or "none"
+    local seed = tool and normalizeSeedName(tool:GetAttribute("SeedTool") or tool:GetAttribute("SeedName") or tool.Name) or "none"
     local lines = {
         "[GAG PLANT CAP DEBUG]",
         "Plot=" .. tostring(plot and plot.Name or "nil"),
