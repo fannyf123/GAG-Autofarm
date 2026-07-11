@@ -15,9 +15,8 @@ def build() -> Path:
     """
     if not RUNTIME.is_file():
         raise SystemExit(f'missing canonical runtime: {RUNTIME}')
-    text = RUNTIME.read_text(encoding='utf-8').replace('\r\n', '\n')
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(text, encoding='utf-8', newline='\n')
+    OUT.write_bytes(RUNTIME.read_bytes())
     return OUT
 
 
