@@ -2919,6 +2919,28 @@ local function ownedPetNames()
     end
     table.sort(names); return names
 end
+local function petNameKey(name)
+    return string.lower((tostring(name or ""):gsub("^%s*(.-)%s*$", "%1")))
+end
+local function ownedOrEquippedPetKeys()
+    local known = {}
+    for name in pairs(invNames("Pets")) do known[petNameKey(name)] = true end
+    for _, tool in ipairs(toolsByAttr("PetId")) do
+        known[petNameKey(tool:GetAttribute("PetName") or tool.Name)] = true
+    end
+    -- Some runtimes remove equipped pets from the backpack, so include the
+    -- replicated equipped list as well when that networking action is present.
+    local ok, equipped = fire("Pets.GetEquippedPets")
+    if ok and type(equipped) == "table" then
+        for key, value in pairs(equipped) do
+            local name = type(value) == "table" and (value.PetName or value.Name or value.ItemName)
+                or (type(value) == "string" and value)
+                or (type(key) == "string" and key)
+            if name and name ~= "" then known[petNameKey(name)] = true end
+        end
+    end
+    return known
+end
 local function equippedPetCount()
     local ok, list = fire("Pets.GetEquippedPets")
     if ok and type(list) == "table" then
@@ -2992,6 +3014,8 @@ local petBuyCooldown = {}
 loopOn(function() return S.autoBuyPets end, function() return S.petBuyInterval end, function()
     local cash = getSheckles()
     local best = nil
+    local knownPets = ownedOrEquippedPetKeys()
+    local skippedExisting = false
     local targetMap = picked(S.buyPets) and S.buyPets or S.equipPets
     local useTargets = picked(targetMap)
     for _, w in ipairs(wildPets()) do
@@ -2999,12 +3023,14 @@ loopOn(function() return S.autoBuyPets end, function() return S.petBuyInterval e
         local targetOk = (not useTargets) or targetMap[petName]
         local key = petName .. ":" .. tostring(w.price or 0)
         local fresh = os.clock() - (petBuyCooldown[key] or 0) > math.max(8, S.petBuyInterval or 5)
-        if targetOk and w.owner == 0 and w.price > 0 and w.price <= S.maxPetPrice and cash >= w.price and fresh then
+        if knownPets[petNameKey(petName)] then
+            skippedExisting = true
+        elseif targetOk and w.owner == 0 and w.price > 0 and w.price <= S.maxPetPrice and cash >= w.price and fresh then
             if (not best) or w.price < best.price then best = w end
         end
     end
     if not best then
-        Stats.petLast = useTargets and ("no target from buy/equip list") or "no valid target"
+        Stats.petLast = skippedExisting and "target already owned/equipped" or (useTargets and "no target from buy/equip list" or "no valid target")
         return
     end
     local key = tostring(best.name or "pet") .. ":" .. tostring(best.price or 0)

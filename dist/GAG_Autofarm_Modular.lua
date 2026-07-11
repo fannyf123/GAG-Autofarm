@@ -2996,6 +2996,18 @@ function Pets.GetOwnedPets()
                 owned[petName] = (owned[petName] or 0) + count
             end
         end
+
+        -- Pet tools in the backpack or character are already owned/equipped.
+        for _, container in ipairs({ player:FindFirstChild("Backpack"), player.Character }) do
+            if container then
+                for _, item in ipairs(container:GetChildren()) do
+                    if item:IsA("Tool") and item:GetAttribute("PetId") then
+                        local petName = item:GetAttribute("PetName") or item.Name
+                        owned[petName] = math.max(owned[petName] or 0, 1)
+                    end
+                end
+            end
+        end
         
         -- Also check leaderstats or data folders
         local data = player:FindFirstChild("Data") or player:FindFirstChild("PlayerData")
@@ -3246,8 +3258,7 @@ end
 ---------------------------------------------------------------------------
 -- ProcessPetBuyConfig
 -- Handles the "Pets.Buy" mixed config:
---   Plain names in array = buy unlimited (one per tick)
---   Map entries ["Name"] = N = stop at N owned
+--   Plain names and map entries both buy only when none is owned/equipped.
 ---------------------------------------------------------------------------
 
 function Pets.ProcessPetBuyConfig()
@@ -3255,27 +3266,33 @@ function Pets.ProcessPetBuyConfig()
     if not buyConfig or type(buyConfig) ~= "table" then return end
     
     local owned = Pets.GetOwnedPets()
+    local equipped = Pets.GetEquippedPets()
+
+    local function alreadyHasPet(petName)
+        return (owned[petName] or 0) > 0 or (equipped[petName] or 0) > 0
+    end
     
     for key, value in pairs(buyConfig) do
         if type(key) == "number" then
             -- Array entry: plain name, buy one at a time, keep buying
             local petName = value
             if type(petName) == "string" and petName ~= "" then
-                Pets.BuyPet(petName)
-                Sleep(0.5)
+                if alreadyHasPet(petName) then
+                    Log("Pet '" .. petName .. "' already owned/equipped — skipping buy")
+                else
+                    Pets.BuyPet(petName)
+                    Sleep(0.5)
+                end
             end
         elseif type(key) == "string" then
             -- Map entry: ["PetName"] = targetCount
             local petName = key
-            local targetCount = tonumber(value) or 0
-            local currentCount = owned[petName] or 0
-            
-            if currentCount < targetCount then
-                Log("Pet '" .. petName .. "': " .. currentCount .. "/" .. targetCount .. " — buying...")
+            if not alreadyHasPet(petName) then
+                Log("Pet '" .. petName .. "' missing — buying...")
                 Pets.BuyPet(petName)
                 Sleep(0.5)
             else
-                Log("Pet '" .. petName .. "' already at target (" .. currentCount .. "/" .. targetCount .. ")")
+                Log("Pet '" .. petName .. "' already owned/equipped — skipping buy")
             end
         end
     end
