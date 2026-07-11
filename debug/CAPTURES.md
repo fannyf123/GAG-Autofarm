@@ -18,10 +18,14 @@ Before sharing any raw capture, scan it again for credentials, cookies, webhook 
 ## Filtered live debugger
 
 `GAG_Remote_Filter_Debugger.lua` is a targeted executor-side debugger for the
-`Shovel.UseShovel`, `Plant.PlantSeed`, and `Place.PlaceSprinkler` call contracts. It copies a
+shovel, plant, sprinkler, egg, crate, and seed-pack call contracts. It copies a
 filtered metadata report at startup and hooks real `Fire()` calls when the
 executor supports `hookfunction`. After reproducing the action, run
 `GAGRemoteFilterCopy()` and share the copied report.
+
+For eggs and crates, manually buy one item and open one item of each type in
+the same session. The report records the live arguments needed before an
+auto-buy path is added.
 
 The captured successful shovel call is
 `Shovel.UseShovel(plantId, fruitId, shovelName, shovelTool)`; an empty string

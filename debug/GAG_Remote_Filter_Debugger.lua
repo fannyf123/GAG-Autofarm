@@ -1,6 +1,6 @@
 -- GAG filtered remote debugger for Delta-compatible executors.
 -- It reports the same action metadata as the raw captures and, when supported,
--- records real Fire() arguments for the plant and shovel actions.
+-- records real Fire() arguments for the selected farming and item actions.
 
 repeat task.wait() until game:IsLoaded()
 
@@ -16,6 +16,15 @@ local TARGETS = {
     "Shovel.UseShovel",
     "Plant.PlantSeed",
     "Place.PlaceSprinkler",
+    "Egg.OpenEgg",
+    "Egg.ConfirmEgg",
+    "Crate.OpenCrate",
+    "CrateShop.PurchaseCrate",
+    "SeedPack.OpenSeedPack",
+    -- These purchase paths are candidates only; a MISSING entry means the
+    -- manual egg purchase needs discovery from its own live capture.
+    "Egg.PurchaseEgg",
+    "EggShop.PurchaseEgg",
 }
 
 local state = {
@@ -181,5 +190,5 @@ for _, path in ipairs(TARGETS) do
     summarizeAction(path, action)
     installHook(path, action)
 end
-add("Trigger one manual shovel, PlantSeed, and sprinkler placement action, then run GAGRemoteFilterCopy().")
+add("Trigger manual egg/crate purchase and egg/crate/seed-pack opens, then run GAGRemoteFilterCopy().")
 copyReport()
