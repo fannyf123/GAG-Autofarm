@@ -19,9 +19,6 @@ local function Log(msg)
 end
 
 local function GetTierOrder()
-	if Utils and Utils.GetTierOrder then
-		return Utils.GetTierOrder()
-	end
 	local order = {}
 	for name, tier in pairs(SPRINKLER_TIERS) do
 		order[#order + 1] = { Name = name, Tier = tier }
@@ -175,7 +172,11 @@ function Gear.BuyGear(gearName)
 	end
 
 	Log("Buying gear: " .. gearName)
-	FireRemote("Networking.GearShop.PurchaseGear", gearName)
+	local purchased = FireRemote("Networking.GearShop.PurchaseGear", gearName)
+	if not purchased then
+		Log("Purchase failed: " .. gearName)
+		return false
+	end
 
 	if GAG.Stats then
 		GAG.Stats.GearBought = (GAG.Stats.GearBought or 0) + 1
@@ -224,7 +225,11 @@ function Gear.PlaceSprinkler(sprinklerName, position)
 	TeleportTo(position)
 	Sleep(0.2)
 
-	FireRemote("Networking.GearShop.EquipGear", sprinklerName, position)
+	local placed = FireRemote("Networking.GearShop.EquipGear", sprinklerName, position)
+	if not placed then
+		Log("Placement failed: " .. sprinklerName)
+		return false
+	end
 
 	if GAG.Stats then
 		GAG.Stats.SprinklersPlaced = (GAG.Stats.SprinklersPlaced or 0) + 1
@@ -249,8 +254,8 @@ function Gear.PlaceSprinklers()
 	end
 
 	local owned = Gear.GetOwnedGear()
-	local bestUpTo = Config and Config.GetNested and Config.GetNested("Best Sprinkler Up To") or nil
-	local coverageMode = Config and Config.GetNested and Config.GetNested("Coverage Mode") or "value"
+	local bestUpTo = Config and Config.Get and Config.Get("Best Sprinkler Up To") or nil
+	local coverageMode = Config and Config.Get and Config.Get("Coverage Mode") or "value"
 
 	local tierOrder = GetTierOrder()
 

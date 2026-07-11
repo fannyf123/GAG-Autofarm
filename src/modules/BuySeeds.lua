@@ -174,17 +174,15 @@ function BuySeeds.BuySeed(GAG, seedName, amount)
 		return false, "Keep Cash limit"
 	end
 
-	local ok, err = pcall(function()
-		Utils.FireRemote(BUY_SEED_REMOTE, seedName, amount)
-	end)
+	local ok = Utils.FireRemote(BUY_SEED_REMOTE, seedName, amount)
 
 	if ok then
 		GAG.Stats.SeedsBought = (GAG.Stats.SeedsBought or 0) + amount
 		Log("Bought", amount, "x", seedName, "for", price * amount)
 		return true
 	else
-		Log("Failed to buy", seedName, ":", err)
-		return false, err
+		Log("Failed to buy", seedName)
+		return false, "Purchase remote rejected or was unavailable"
 	end
 end
 

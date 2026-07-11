@@ -56,8 +56,8 @@ end
 local function IsInPlantPlan(seedName)
 	local plan = GAG.Config.Get("Plant Plan")
 	if not plan then return false end
-	for _, entry in ipairs(plan) do
-		if entry == seedName or (type(entry) == "table" and entry.Name == seedName) then
+	for key, entry in pairs(plan) do
+		if entry == seedName or key == seedName or (type(entry) == "table" and entry.Name == seedName) then
 			return true
 		end
 	end
@@ -249,7 +249,38 @@ function Plant.ShovelPlant(plant)
 	if pendingShovel[plant] then return false end
 	pendingShovel[plant] = true
 
-	local shoveled = GAG.Modules.Utils.FireRemote("Networking.Trowel.MovePlant", plant)
+	local player = GAG.Player
+	local backpack = player and player:FindFirstChild("Backpack")
+	local character = player and player.Character
+	local shovel = nil
+	local containers = {}
+	if character then containers[#containers + 1] = character end
+	if backpack then containers[#containers + 1] = backpack end
+	for _, container in ipairs(containers) do
+		if container then
+			for _, item in ipairs(container:GetChildren()) do
+				if item:IsA("Tool") and (item:GetAttribute("Shovel") ~= nil or string.find(string.lower(item.Name), "shovel", 1, true)) then
+					shovel = item
+					break
+				end
+			end
+		end
+		if shovel then break end
+	end
+	if not shovel then
+		GAG.Modules.Utils.Log("ShovelPlant: shovel tool not found", "Warn")
+		pendingShovel[plant] = nil
+		return false
+	end
+	if shovel.Parent == backpack and character then
+		local humanoid = character:FindFirstChildWhichIsA("Humanoid")
+		if humanoid then humanoid:EquipTool(shovel); task.wait(0.12) end
+	end
+
+	local plantId = plant:GetAttribute("PlantId") or plant:GetAttribute("Id") or plant.Name
+	local fruitId = plant:GetAttribute("FruitId") or ""
+	local shovelName = shovel:GetAttribute("Shovel") or shovel.Name
+	local shoveled = GAG.Modules.Utils.FireRemote("ShovelPlant", tostring(plantId), tostring(fruitId), shovelName, shovel)
 	if not shoveled then
 		GAG.Modules.Utils.Log("ShovelPlant: shovel remote not found", "Error")
 		pendingShovel[plant] = nil
@@ -328,12 +359,15 @@ function Plant.GetNextSeedToPlant()
 		end
 	end
 
-	if plantPlan and #plantPlan > 0 then
-		for _, entry in ipairs(plantPlan) do
+	if plantPlan and next(plantPlan) then
+		for key, entry in pairs(plantPlan) do
 			local name, targetCount
 			if type(entry) == "table" then
 				name = entry.Name
 				targetCount = entry.Count or entry.Amount or 1
+			elseif type(key) == "string" then
+				name = key
+				targetCount = tonumber(entry) or 1
 			else
 				name = entry
 				targetCount = 1

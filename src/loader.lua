@@ -15,14 +15,8 @@
 ---------------------------------------------------------------------------
 -- 0. CONFIG USER — Edit bagian ini sebelum run
 ---------------------------------------------------------------------------
-_G.GAGConfig = _G.GAGConfig or {
-    -- Pilih: "Starter", "Balanced", "Rich", "AltToMain", "LowPC"
-    Preset = "Balanced",
-
-    -- Boleh override sebagian saja. Contoh:
-    -- ["Mail"] = { ["Send To"] = "USERNAME_AKUN_UTAMAMU" },
-    -- ["Performance"] = { ["FPS Cap"] = 30 },
-}
+_G.GAGConfig = _G.GAGConfig or {}
+-- Keep the modular build manual by default. Set Preset before executing to opt in.
 
 -- Contoh config lengkap (uncomment / edit sesuai kebutuhan):
 -- _G.GAGConfig = {
@@ -189,6 +183,10 @@ end)
 -- 3. LOAD MODULES (inline — no HttpGet needed)
 ---------------------------------------------------------------------------
 local function LoadModule(name, source)
+    if type(source) ~= "string" or source:match("^%-%-#include") then
+        warn("[GAG] Module " .. name .. " was not injected. Build src/loader.lua with tools/build_modular_source.py first.")
+        return nil
+    end
     local fn, compileError = loadstring(source)
     if not fn then
         warn("[GAG] Failed to compile module " .. name .. ": " .. tostring(compileError))
@@ -219,8 +217,8 @@ local function LoadModule(name, source)
     return mod
 end
 
--- NOTE: Module sources are injected below by the build script
--- or loaded from individual files if running locally
+-- Module sources are injected by tools/build_modular_source.py.
+-- This template intentionally fails clearly if it is pasted without being built.
 
 ---------------------------------------------------------------------------
 -- 4. BOOT SEQUENCE

@@ -7,7 +7,7 @@ local Config = {}
 
 local DEFAULTS = {
     -- Harvest
-    ["Auto Harvest"]        = true,
+    ["Auto Harvest"]        = false,
     ["Sell At"]             = 85,
     ["Sell Every"]          = 40,
     ["Only Harvest"]        = {},
@@ -15,7 +15,7 @@ local DEFAULTS = {
     ["Wait For Mutation"]   = { "Bamboo", "Mushroom" },
 
     -- Plant
-    ["Auto Plant"]          = true,
+    ["Auto Plant"]          = false,
     ["Plant Plan"]          = {},
     ["Only Plant"]          = {},
     ["Minimum Seed"]        = "Bamboo",
@@ -52,10 +52,10 @@ local DEFAULTS = {
 
     -- Gear
     ["Gear"] = {
-        ["Auto Buy"]           = true,
+        ["Auto Buy"]           = false,
         ["Keep Cash"]          = 15000,
         ["Sprinkler Coverage"] = "concentrate",
-        ["Place Sprinklers"]   = { ["best"] = 4 },
+        ["Place Sprinklers"]   = {},
         ["Best Sprinkler Up To"] = "Rare Sprinkler",
         ["Keep Gear"]          = {},
         ["Buy Gear"]           = {},
@@ -63,12 +63,12 @@ local DEFAULTS = {
 
     -- Event Seeds
     ["Event Seeds"] = {
-        ["Auto Claim"] = true,
+        ["Auto Claim"] = false,
     },
 
     -- Mail
     ["Mail"] = {
-        ["Auto Claim"] = true,
+        ["Auto Claim"] = false,
         ["Send To"]    = "",
         ["Send Every"] = 0,
         ["Send"]       = {},

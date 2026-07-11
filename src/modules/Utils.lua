@@ -455,7 +455,7 @@ local REMOTE_ALIASES = {
 	-- Plant / garden (from plant.txt)
 	PlantSeed = "Networking.Plant.PlantSeed",
 	Plant = "Networking.Plant.PlantSeed",
-	ShovelPlant = "Networking.Trowel.MovePlant",
+	ShovelPlant = "Networking.Shovel.UseShovel",
 	MovePlant = "Networking.Trowel.MovePlant",
 
 	-- Gear shop (from gearshop.txt)

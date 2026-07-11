@@ -414,12 +414,18 @@ function Pets.ProcessPetEquipConfig()
     local slots = Pets.GetPetSlotCount()
     
     -- Build equip queue with priority (order matters for Lua tables)
-    local equipQueue = {}
-    for petName, targetCount in pairs(equipConfig) do
-        if type(petName) == "string" and type(targetCount) == "number" then
-            table.insert(equipQueue, { name = petName, target = targetCount })
-        end
-    end
+	local equipQueue = {}
+	-- Preserve array order for the documented { "Unicorn", "Deer" } form.
+	for _, petName in ipairs(equipConfig) do
+		if type(petName) == "string" and petName ~= "" then
+			table.insert(equipQueue, { name = petName, target = 1 })
+		end
+	end
+	for petName, targetCount in pairs(equipConfig) do
+		if type(petName) == "string" and type(targetCount) == "number" then
+			table.insert(equipQueue, { name = petName, target = targetCount })
+		end
+	end
     
     -- Process each pet type
     for _, entry in ipairs(equipQueue) do

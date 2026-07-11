@@ -80,7 +80,7 @@ local function ShouldWaitForMutation(plant)
 	if not waitMut or type(waitMut) ~= "table" then return false end
 
 	local plantName = plant.Name or plant:GetAttribute("PlantName") or ""
-	if not waitMut[plantName] then return false end
+	if not Utils.IsInList(plantName, waitMut) then return false end
 
 	local fruits = nil
 	local ok = pcall(function()
@@ -135,7 +135,7 @@ function Harvest.HarvestPlant(plant)
 	-- Walk to the plant
 	local success = pcall(function()
 		if Utils and Utils.WalkTo then
-			local pos = plant:GetPivot and plant:GetPivot().Position
+			local pos = plant.GetPivot and plant:GetPivot().Position
 				or plant.PrimaryPart and plant.PrimaryPart.Position
 				or plant:FindFirstChild("HumanoidRootPart") and plant.HumanoidRootPart.Position
 
@@ -154,6 +154,7 @@ function Harvest.HarvestPlant(plant)
 	task.wait(0.3)
 
 	-- Interact with the plant to harvest
+	local didInteract = false
 	local harvestSuccess = pcall(function()
 		-- Try common interaction patterns
 		local remote = plant:FindFirstChild("HarvestRemote")
@@ -161,6 +162,7 @@ function Harvest.HarvestPlant(plant)
 
 		if remote and remote:IsA("RemoteEvent") then
 			remote:FireServer()
+			didInteract = true
 		else
 			-- Try proximity prompt
 			local prompt = plant:FindFirstChildWhichIsA("ProximityPrompt", true)
@@ -168,11 +170,12 @@ function Harvest.HarvestPlant(plant)
 				prompt:InputHoldBegin()
 				task.wait(prompt.HoldDuration or 0.2)
 				prompt:InputHoldEnd()
+				didInteract = true
 			end
 		end
 	end)
 
-	if harvestSuccess then
+	if harvestSuccess and didInteract then
 		GAG.Stats.Harvested = (GAG.Stats.Harvested or 0) + 1
 		Log("Harvested: " .. plantName .. " (Total: " .. GAG.Stats.Harvested .. ")")
 		task.wait(0.2)
@@ -230,10 +233,10 @@ function Harvest.SellFruits()
 
 	-- Teleport or walk to sell NPC
 	ok = pcall(function()
-		local sellPos = nil
+			local sellPos = nil
 
 		if sellNPC:IsA("Model") then
-			sellPos = sellNPC:GetPivot and sellNPC:GetPivot().Position
+			sellPos = sellNPC.GetPivot and sellNPC:GetPivot().Position
 				or sellNPC.PrimaryPart and sellNPC.PrimaryPart.Position
 		elseif sellNPC:IsA("BasePart") then
 			sellPos = sellNPC.Position
@@ -251,23 +254,26 @@ function Harvest.SellFruits()
 	task.wait(0.5)
 
 	-- Interact with sell NPC
+	local didSell = false
 	local sellSuccess = pcall(function()
 		local remote = sellNPC:FindFirstChild("SellRemote")
 			or sellNPC:FindFirstChildWhichIsA("RemoteEvent", true)
 
 		if remote and remote:IsA("RemoteEvent") then
 			remote:FireServer()
+			didSell = true
 		else
 			local prompt = sellNPC:FindFirstChildWhichIsA("ProximityPrompt", true)
 			if prompt then
 				prompt:InputHoldBegin()
 				task.wait(prompt.HoldDuration or 0.3)
 				prompt:InputHoldEnd()
+				didSell = true
 			end
 		end
 	end)
 
-	if sellSuccess then
+	if sellSuccess and didSell then
 		GAG.Stats.Sold = (GAG.Stats.Sold or 0) + soldCount
 		Log("Sold " .. soldCount .. " fruits. (Total sold: " .. GAG.Stats.Sold .. ")")
 		sellTimer = 0
@@ -360,7 +366,8 @@ function Harvest.Start(gag)
 	while running do
 		local loopStart = tick()
 
-		pcall(function()
+		if GetConfig("Auto Harvest") then
+			pcall(function()
 			-- Gather plants from the farm
 			local plants = nil
 			if Utils and Utils.GetPlants then
@@ -407,7 +414,8 @@ function Harvest.Start(gag)
 			if ShouldSellNow() then
 				Harvest.SellFruits()
 			end
-		end)
+			end)
+		end
 
 		-- Update sell timer
 		local elapsed = tick() - loopStart

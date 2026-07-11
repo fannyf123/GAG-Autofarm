@@ -333,7 +333,7 @@ function Mail.Start(GAG)
 			end
 		end
 
-		Utils.Sleep(GAG, 10)
+		Utils.Sleep(10)
 	end
 
 	Utils.Log("[Mail] Mail loop stopped")

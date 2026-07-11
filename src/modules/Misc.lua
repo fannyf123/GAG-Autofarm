@@ -549,7 +549,7 @@ function Misc.Start(GAG)
 	end)
 
 	local loopCount = 0
-	while true do
+	while GAG and GAG.Running and (not GAG.State or GAG.State.Running ~= false) do
 		local ok, err = pcall(function()
 			Misc.EventSeeds()
 

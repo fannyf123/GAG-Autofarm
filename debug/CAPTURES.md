@@ -14,3 +14,15 @@ They are intentionally Git-ignored: captures can contain transient player/world 
 - `seedpack.txt` — seed-pack/opening events.
 
 Before sharing any raw capture, scan it again for credentials, cookies, webhook URLs, and personally identifying state.
+
+## Filtered live debugger
+
+`GAG_Remote_Filter_Debugger.lua` is a targeted executor-side debugger for the
+`Shovel.UseShovel` and `Plant.PlantSeed` call contracts. It copies a
+filtered metadata report at startup and hooks real `Fire()` calls when the
+executor supports `hookfunction`. After reproducing the action, run
+`GAGRemoteFilterCopy()` and share the copied report.
+
+The captured successful shovel call is
+`Shovel.UseShovel(plantId, fruitId, shovelName, shovelTool)`; an empty string
+is valid for `fruitId` when the target has no associated fruit.

@@ -705,14 +705,14 @@ function Window:ApplyResponsiveLayout(skipAnimation)
 	local viewport = self:GetViewportSize()
 	local isTouch = UserInputService.TouchEnabled
 	local compact = viewport.X < 760 or viewport.Y < 540 or (isTouch and viewport.X < 930)
-	local sideWidth = compact and 118 or 166
+	local sideWidth = compact and 108 or 142
 	local windowWidth = compact and math.min(690, math.max(290, viewport.X - 22)) or self.BaseSize.X.Offset
 	local windowHeight = compact and math.min(520, math.max(340, viewport.Y - 72)) or self.BaseSize.Y.Offset
 	local topbarHeight = compact and 52 or 54
 	local contentTop = topbarHeight + 3
 	local sidebarPadding = compact and 8 or 12
-	local tabHeight = compact and 36 or 40
-	local tabTextSize = compact and 11 or 13
+	local tabHeight = compact and 44 or 42
+	local tabTextSize = compact and 12 or 13
 	local pagePadding = compact and 9 or 14
 	local titleSize = compact and 15 or 17
 	local subtitleSize = compact and 10 or 11
@@ -1314,11 +1314,12 @@ end
 
 function Section:Textbox(text, placeholder, callback)
 	local theme = self.Window.Theme
-	local row, rowStroke = self:_baseRow(46)
+	local compact = self.Window.IsCompact
+	local row, rowStroke = self:_baseRow(compact and 72 or 46)
 
 	local label = makeLabel(row, text, 13, theme.Text, true)
-	label.Position = UDim2.fromOffset(12, 0)
-	label.Size = UDim2.new(1, -82, 1, 0)
+	label.Position = compact and UDim2.fromOffset(12, 4) or UDim2.fromOffset(12, 0)
+	label.Size = compact and UDim2.new(1, -24, 0, 24) or UDim2.new(1, -218, 1, 0)
 	label.ZIndex = 7
 
 	local textbox = new("TextBox", {
@@ -1329,8 +1330,8 @@ function Section:Textbox(text, placeholder, callback)
 		PlaceholderColor3 = theme.Muted,
 		PlaceholderText = placeholder or "",
 		Parent = row,
-		Position = UDim2.new(1, -78, 0.5, -15),
-		Size = UDim2.fromOffset(66, 30),
+		Position = compact and UDim2.fromOffset(12, 34) or UDim2.new(1, -194, 0.5, -15),
+		Size = compact and UDim2.new(1, -24, 0, 30) or UDim2.fromOffset(182, 30),
 		Text = "",
 		TextColor3 = theme.Text,
 		TextSize = 13,
@@ -1659,6 +1660,10 @@ local function fire(path, ...)            -- fire-and-forget OR returns value (b
     local args = table.pack(...)
     local ok, res = pcall(function() return a:Fire(table.unpack(args, 1, args.n)) end)
     if not ok then return false, res end
+    if res == false then return false, "action rejected: " .. path end
+    if type(res) == "table" and (res.Success == false or res.success == false or res.Error or res.error) then
+        return false, res
+    end
     return true, res
 end
 local function fireFirst(paths, ...)
@@ -1677,6 +1682,10 @@ local function fireFast(path, ...)
     local args = table.pack(...)
     local ok, res = pcall(function() return a:Fire(table.unpack(args, 1, args.n)) end)
     if not ok then return false, res end
+    if res == false then return false, "action rejected: " .. path end
+    if type(res) == "table" and (res.Success == false or res.success == false or res.Error or res.error) then
+        return false, res
+    end
     return true, res
 end
 -- Retry wrapper for critical operations
@@ -1931,12 +1940,48 @@ local function countTargetSeedTools(targets)
     return total
 end
 
-local SHOVEL_ACTIONS = { "Garden.ShovelPlant", "Garden.RemovePlant", "Plant.ShovelPlant", "Plant.RemovePlant", "Plants.ShovelPlant", "Plants.RemovePlant" }
+-- Captured in debug/captures/record.txt. Trowel.MovePlant is a different
+-- feature for relocating plants, not the shovel action used for replacement.
+local SHOVEL_ACTIONS = { "Shovel.UseShovel" }
+local function equipShovelTool()
+    local held = heldToolByAttr("Shovel")
+    if held then return held end
+
+    local candidates = toolsByAttr("Shovel")
+    if #candidates == 0 then
+        local function scan(container)
+            if not container then return end
+            for _, item in ipairs(container:GetChildren()) do
+                if item:IsA("Tool") and string.find(string.lower(item.Name), "shovel", 1, true) then
+                    candidates[#candidates + 1] = item
+                end
+            end
+        end
+        scan(LocalPlayer:FindFirstChild("Backpack"))
+        scan(LocalPlayer.Character)
+    end
+
+    local tool = candidates[1]
+    local hum = humanoid()
+    if not (tool and hum) then return nil end
+    if tool.Parent ~= LocalPlayer.Character then
+        local equipped = pcall(function() hum:EquipTool(tool) end)
+        if not equipped then return nil end
+        task.wait(0.12)
+    end
+    return heldToolByAttr("Shovel") or tool
+end
 local function shovelPlantModel(m)
     local plantId = m and (m:GetAttribute("PlantId") or m:GetAttribute("Id") or m.Name)
     if not plantId then Stats.shovelLastError = "missing plant id"; return false end
-    local ok, used, res = fireFirst(SHOVEL_ACTIONS, tostring(plantId))
-    if not ok then ok, used, res = fireFirst(SHOVEL_ACTIONS, m) end
+    local tool = equipShovelTool()
+    if not tool then
+        Stats.shovelLastError = "Shovel tool not found or could not be equipped"
+        return false
+    end
+    local fruitId = m:GetAttribute("FruitId") or ""
+    local shovelName = tool:GetAttribute("Shovel") or tool.Name
+    local ok, used, res = fireFirst(SHOVEL_ACTIONS, tostring(plantId), tostring(fruitId), shovelName, tool)
     Stats.shovelLastError = ok and ("ok via " .. tostring(used)) or tostring(res or "no shovel action worked")
     return ok == true
 end
@@ -2043,10 +2088,10 @@ local function atPosition(pos, fn)
     local saved = hrp.CFrame
     pcall(function() hrp.CFrame = CFrame.new(pos + Vector3.new(0, 4, 0)) end)
     task.wait(0.45)
-    local ok = pcall(fn)
+    local ok, result = pcall(fn)
     task.wait(0.15)
     if hrp and hrp.Parent then pcall(function() hrp.CFrame = saved end) end
-    return ok
+    return ok and result ~= false
 end
 -- own-garden anchor: standing inside it sets IsInOwnGarden -> the server banks carried stolen fruit
 local function myBasePos()
@@ -2072,7 +2117,7 @@ local S = {
     autoFarm = false,
     -- buy / plant / harvest / sell
     autoBuy = false, buySeeds = {}, buyInterval = 5, buyPerTick = 8,
-    autoPlant = false, plantSpacing = 4, plantSeed = "Best owned", plantPlan = {}, plantLimit = 0, keepSeeds = {},
+    autoPlant = false, plantSpacing = 4, plantSeed = "Best owned", plantPlan = {}, plantLimit = 0, keepSeeds = {}, minimumSeed = "",
     autoHarvest = false, harvestInterval = 2, harvestDelay = 0, spamHarvest = true, turboFarm = true, spamHarvestBatch = 50, onlyHarvest = {}, dontHarvest = {}, neverSellFruit = {}, neverSellMut = {},
     autoSell = false, sellAt = 85, sellInterval = 15,
     autoExpand = false, autoPot = false, autoDaily = false, autoReplacePlants = false, shovelPerCycle = 8,
@@ -2091,7 +2136,7 @@ local S = {
     -- steal
     autoSteal = false, stealTeleport = true, stealReturnBase = true, stealDelay = 0.05,
     -- misc
-    autoMail = false, mailSendTo = "", mailSend = {}, mailSendEvery = 45, lastMailSend = 0, autoAcceptGift = false, autoHop = false, allowServerHop = false, hopInterval = 0,
+    autoMail = false, mailSendTo = "", mailSend = {}, mailSendEvery = 45, lastMailSend = 0, autoAcceptGift = false, autoHop = false, allowServerHop = false, hopInterval = 0, autoEventSeedClaim = false,
     codeText = "", autoCodes = false, antiAfk = true,
     -- perf / webhook
     fpsBoost = false, ultraPerformance = false,
@@ -2233,6 +2278,7 @@ local function gagApplyConfig(raw)
 
     if p["Auto Plant"] ~= nil then S.autoPlant = p["Auto Plant"] == true end
     if p.Layout == "spread" then S.plantSpacing = 8 elseif p.Layout == "compact" then S.plantSpacing = 4 end
+    if type(p["Minimum Seed"]) == "string" then S.minimumSeed = normalizeSeedName(p["Minimum Seed"]) or "" end
     local onlyPlant = gagFirstName(p["Only Plant"] or p["Plant Plan"])
     if onlyPlant then S.plantSeed = onlyPlant end
     if type(p["Plant Plan"]) == "table" then S.plantPlan = gagClone(p["Plant Plan"]) end
@@ -2258,7 +2304,9 @@ local function gagApplyConfig(raw)
     end
     if type(gear["Best Sprinkler Up To"]) == "string" then S.bestSprinklerUpTo = gear["Best Sprinkler Up To"] end
 
-    if cfg["Event Seeds"] and cfg["Event Seeds"]["Auto Claim"] ~= nil then S.autoPack = cfg["Event Seeds"]["Auto Claim"] == true end
+    if cfg["Event Seeds"] and cfg["Event Seeds"]["Auto Claim"] ~= nil then
+        S.autoEventSeedClaim = cfg["Event Seeds"]["Auto Claim"] == true
+    end
     if mail["Auto Claim"] ~= nil then S.autoMail = mail["Auto Claim"] == true end
     if type(mail["Send To"]) == "string" then S.mailSendTo = mail["Send To"] end
     if mail["Send Every"] ~= nil then S.mailSendEvery = math.max(10, (tonumber(mail["Send Every"]) or 0) * 60); if mail["Send Every"] == 0 then S.mailSendEvery = 45 end end
@@ -2308,7 +2356,8 @@ end
 -- // ============================================================ \\ --
 -- //                     CORE FARM (master loop)                 \\ --
 -- // ============================================================ \\ --
-local SEED_BUY_ACTIONS = { "SeedShop.PurchaseSeed", "SeedShop.BuySeed", "SeedShop.RequestPurchase", "SeedShop.Purchase", "Shop.PurchaseSeed", "Shop.BuySeed" }
+-- Captured in debug/captures/record.txt; do not fall back to unverified shop paths.
+local SEED_BUY_ACTIONS = { "SeedShop.PurchaseSeed" }
 local _seedBuyWarnAt = {}
 local function buySeedOnce(seedName)
     local ok, used, err = fireFirst(SEED_BUY_ACTIONS, seedName)
@@ -2374,8 +2423,20 @@ local function seedAllowedByKeep(seedName)
     local keep = tonumber(S.keepSeeds and S.keepSeeds[seedName]) or 0
     return seedToolCount(seedName) > keep
 end
+local function seedMeetsMinimum(seedName)
+    if not S.minimumSeed or S.minimumSeed == "" then return true end
+    local requiredPrice, seedPrice
+    for _, seed in ipairs(CATALOG) do
+        if seed.name == S.minimumSeed then requiredPrice = seed.price end
+        if seed.name == seedName then seedPrice = seed.price end
+    end
+    return requiredPrice == nil or seedPrice == nil or seedPrice >= requiredPrice
+end
 local plantBlockedUntil = {}
 local plantCapBlockedUntil = 0
+local plantNoProgress = 0
+local PLANT_CONFIRM_DELAY = 0.25
+local PLANT_NO_PROGRESS_LIMIT = 3
 local function seedPlantBlocked(seedName)
     return seedName and (plantBlockedUntil[seedName] or 0) > os.clock()
 end
@@ -2387,7 +2448,7 @@ local function plannedSeedTarget()
     if type(S.plantPlan) ~= "table" or not picked(S.plantPlan) then return nil end
     local counts = plantCounts()
     for name, target in pairs(S.plantPlan) do
-        if (counts[name] or 0) < (tonumber(target) or 0) and seedAllowedByKeep(name) and not seedPlantBlocked(name) then return name end
+        if (counts[name] or 0) < (tonumber(target) or 0) and seedAllowedByKeep(name) and seedMeetsMinimum(name) and not seedPlantBlocked(name) then return name end
     end
     return nil
 end
@@ -2395,11 +2456,11 @@ local function pickPlantTool()
     local planned = plannedSeedTarget()
     if planned then
         local t = toolsByAttr("SeedTool", planned)[1]
-        if t and seedAllowedByKeep(planned) and not seedPlantBlocked(planned) then return t end
+        if t and seedAllowedByKeep(planned) and seedMeetsMinimum(planned) and not seedPlantBlocked(planned) then return t end
     end
     if S.plantSeed ~= "Best owned" and S.plantSeed ~= "" then
         local t = toolsByAttr("SeedTool", S.plantSeed)[1]
-        if t and seedAllowedByKeep(S.plantSeed) and not seedPlantBlocked(S.plantSeed) then return t end
+        if t and seedAllowedByKeep(S.plantSeed) and seedMeetsMinimum(S.plantSeed) and not seedPlantBlocked(S.plantSeed) then return t end
     end
     -- best owned = rarest/most expensive seed we hold
     local best, bestPrice
@@ -2407,9 +2468,9 @@ local function pickPlantTool()
         local nm = t:GetAttribute("SeedTool")
         local price = 0
         for _, s in ipairs(CATALOG) do if s.name == nm then price = s.price; break end end
-        if seedAllowedByKeep(nm) and not seedPlantBlocked(nm) and (not bestPrice or price > bestPrice) then best, bestPrice = t, price end
+        if seedAllowedByKeep(nm) and seedMeetsMinimum(nm) and not seedPlantBlocked(nm) and (not bestPrice or price > bestPrice) then best, bestPrice = t, price end
     end
-    return best or toolsByAttr("SeedTool")[1]
+    return best
 end
 
 local function canPlantNow()
@@ -2417,7 +2478,9 @@ local function canPlantNow()
         return S.autoReplacePlants == true and countTargetSeedTools(targetPlantMap(nil)) > 0
     end
     local _, totalPlants = plantCounts()
-    if (S.plantLimit or 0) > 0 and totalPlants >= S.plantLimit and not S.autoReplacePlants then return false end
+    if (S.plantLimit or 0) > 0 and totalPlants >= S.plantLimit then
+        return S.autoReplacePlants == true and pickPlantTool() ~= nil
+    end
     local tool = pickPlantTool(); if not tool then return false end
     if #emptyPlantPositions(S.plantSpacing) > 0 then return true end
     return S.autoReplacePlants == true
@@ -2431,7 +2494,13 @@ local function stepPlant()
         return
     end
     local _, totalPlants = plantCounts()
-    if (S.plantLimit or 0) > 0 and totalPlants >= S.plantLimit and not S.autoReplacePlants then return end
+    if (S.plantLimit or 0) > 0 and totalPlants >= S.plantLimit then
+        if S.autoReplacePlants then
+            local replacement = pickPlantTool()
+            stepShovelForPlanting(replacement and replacement:GetAttribute("SeedTool") or nil)
+        end
+        return
+    end
     local tool = pickPlantTool(); if not tool then return end
     local hum = humanoid(); if not hum then return end
     if heldToolByAttr("SeedTool") ~= tool then 
@@ -2456,8 +2525,10 @@ local function stepPlant()
                 seedAttr = tool:GetAttribute("SeedTool")
                 if not seedAttr then return end
             end
+            local _, plantsBefore = plantCounts()
+            local seedsBefore = seedToolCount(seedAttr)
             local ok, res = fire("Plant.PlantSeed", pos, seedAttr, tool)
-            local failed = (not ok) or (type(res) == "table" and (res.Success == false or res.success == false or res.Error or res.error))
+            local failed = not ok
             if failed then
                 plantBlockedUntil[seedAttr] = os.clock() + 10
                 plantCapBlockedUntil = os.clock() + 20
@@ -2465,8 +2536,28 @@ local function stepPlant()
                 Stats.lastAction = "plant cap/full blocked " .. tostring(seedAttr)
                 break
             end
-            Stats.planted += 1; Stats.lastAction = "planted " .. tostring(seedAttr)
-            task.wait(jitter(0.025, 0.055))
+            -- PlantSeed is fire-and-forget. Confirm state changes instead of
+            -- trusting its nil response, which otherwise causes cap spam.
+            task.wait(PLANT_CONFIRM_DELAY)
+            local _, plantsAfter = plantCounts()
+            local seedsAfter = seedToolCount(seedAttr)
+            if plantsAfter > plantsBefore or seedsAfter < seedsBefore then
+                plantNoProgress = 0
+                Stats.planted += 1
+                Stats.lastAction = "planted " .. tostring(seedAttr)
+                task.wait(jitter(0.025, 0.055))
+            else
+                plantNoProgress += 1
+                Stats.plantLastError = "PlantSeed had no replicated result (" .. tostring(plantNoProgress) .. "/" .. tostring(PLANT_NO_PROGRESS_LIMIT) .. ")"
+                Stats.lastAction = "waiting for plant confirmation"
+                if plantNoProgress >= PLANT_NO_PROGRESS_LIMIT then
+                    plantBlockedUntil[seedAttr] = os.clock() + 60
+                    plantCapBlockedUntil = os.clock() + 60
+                    Stats.lastAction = "plant cap/no-progress blocked " .. tostring(seedAttr)
+                    break
+                end
+                task.wait(0.12)
+            end
     end
 end
 
@@ -2514,7 +2605,11 @@ local function stepHarvest()
         if S.dontHarvest[h.name] then continue end
         if S.neverSellFruit[h.name] or S.neverSellMut[h.mutation] then continue end
         if fruitCount() >= cap - 1 then break end
-        pcall(function() fireFast("Garden.CollectFruit", h.plantId, h.fruitId) end)
+        local ok = fireFast("Garden.CollectFruit", h.plantId, h.fruitId)
+        if not ok then
+            Stats.lastAction = "harvest failed " .. tostring(h.name or "fruit")
+            break
+        end
         Stats.harvested += 1; Stats.lastAction = (spam and "spam harvested " or "harvested ") .. tostring(h.name or "fruit")
         fired += 1
         if spam then
@@ -2707,8 +2802,10 @@ loopOn(function() return S.autoWater end, function() return S.waterInterval end,
     local name = t:GetAttribute("WateringCan")
     for _, pos in ipairs(existingPlantPositions()) do
         if not S.autoWater then break end
-        fire("WateringCan.UseWateringCan", pos - Vector3.new(0, 0.3, 0), name, t)
-        Stats.watered += 1; task.wait(jitter(0.15, 0.3))
+        if fire("WateringCan.UseWateringCan", pos - Vector3.new(0, 0.3, 0), name, t) then
+            Stats.watered += 1
+        end
+        task.wait(jitter(0.15, 0.3))
     end
 end)
 
@@ -2824,12 +2921,13 @@ loopOn(function() return S.autoBuyPets end, function() return S.petBuyInterval e
     local key = tostring(best.name or "pet") .. ":" .. tostring(best.price or 0)
     petBuyCooldown[key] = os.clock()
     Stats.petLast = string.format("target %s @ %s", tostring(best.name or "?"), fmt(best.price or 0)); Stats.lastAction = "pet target " .. tostring(best.name or "?"); Stats.state = "PET"
+    local tamed = false
     if S.petTeleport and best.pos then
-        atPosition(best.pos, function() fire("Pets.WildPetTame", best.part) end)
+        tamed = atPosition(best.pos, function() return fire("Pets.WildPetTame", best.part) end)
     else
-        fire("Pets.WildPetTame", best.part)
+        tamed = fire("Pets.WildPetTame", best.part)
     end
-    Stats.tamed += 1
+    if tamed then Stats.tamed += 1 else Stats.petLast = "tame failed" end
 end)
 loopOn(function() return S.autoSellPets end, 4, function()
     if not picked(S.sellPets) then return end
@@ -2899,9 +2997,9 @@ loopOn(function() return S.autoSteal end, 1.5, function()
         if S.stealTeleport and f.pos then
             local hrp = hrpNow(); if hrp then pcall(function() hrp.CFrame = CFrame.new(f.pos + Vector3.new(0, 4, 0)) end); task.wait(0.4) end
         end
-        fire("Steal.BeginSteal", f.owner, f.plantId, f.fruitId)
-        fire("Steal.CompleteSteal")
-        Stats.stolen += 1
+        local started = fire("Steal.BeginSteal", f.owner, f.plantId, f.fruitId)
+        local completed = started and fire("Steal.CompleteSteal")
+        if completed then Stats.stolen += 1 else Stats.lastAction = "steal failed" end
         -- 2) carry it home: standing in own garden zone banks it (CarryingStolenFruit clears)
         if S.stealReturnBase then
             local base = myBasePos()
@@ -2919,6 +3017,40 @@ end)
 -- // ============================================================ \\ --
 -- //                  MISC (mail / gifts / hop / codes)          \\ --
 -- // ============================================================ \\ --
+local EVENT_SEED_MARKERS = { "eventseed", "fallingseed", "seeddrop", "mysteryseed", "luckyseed", "galaxyseed" }
+local function claimNearestEventSeed()
+    if type(firetouchinterest) ~= "function" then return false end
+    local hrp = hrpNow(); if not hrp then return false end
+    local nearest, nearestDistance
+    for _, item in ipairs(Workspace:GetDescendants()) do
+        if item:IsA("BasePart") then
+            local name = string.lower(item.Name)
+            local marked = item:GetAttribute("IsEventSeed") or item:GetAttribute("EventDrop") or item:FindFirstChild("EventTag")
+            if not marked then
+                for _, marker in ipairs(EVENT_SEED_MARKERS) do
+                    if string.find(name, marker, 1, true) then marked = true; break end
+                end
+            end
+            if marked then
+                local distance = (hrp.Position - item.Position).Magnitude
+                if distance <= 300 and (not nearestDistance or distance < nearestDistance) then
+                    nearest, nearestDistance = item, distance
+                end
+            end
+        end
+    end
+    if not nearest then return false end
+    return atPosition(nearest.Position, function()
+        firetouchinterest(hrp, nearest, 0)
+        task.wait(0.1)
+        firetouchinterest(hrp, nearest, 1)
+        return true
+    end)
+end
+loopOn(function() return S.autoEventSeedClaim end, 5, function()
+    if claimNearestEventSeed() then Stats.lastAction = "claimed event seed" end
+end)
+
 loopOn(function() return S.autoMail end, 30, function()
     local ok, box = fire("Mailbox.OpenInbox")
     if ok and type(box) == "table" then
@@ -3299,6 +3431,7 @@ sharedEnv.GAGPlantCapDebug = function()
         "PlantLimitSetting=" .. tostring(S.plantLimit or 0),
         "AutoReplace=" .. tostring(S.autoReplacePlants) .. " ShovelPerCycle=" .. tostring(S.shovelPerCycle),
         "PlantCapBlocked=" .. tostring(plantCapBlocked()) .. " Remaining=" .. tostring(math.max(0, math.floor((plantCapBlockedUntil or 0) - os.clock()))),
+        "PlantNoProgress=" .. tostring(plantNoProgress) .. "/" .. tostring(PLANT_NO_PROGRESS_LIMIT) .. " ConfirmDelay=" .. tostring(PLANT_CONFIRM_DELAY),
         "NextSeedTool=" .. tostring(seed),
         "TargetSeeds=" .. selectedNames(targetPlantMap(seed)),
         "TargetSeedTools=" .. tostring(countTargetSeedTools(targetPlantMap(seed))),
@@ -3325,24 +3458,33 @@ end
 
 -- Create UI with KrassUI
 local ui = KrassUI.new({
-    Name = "Grow a Garden 2",
-    Subtitle = "WalkyHub | Full Auto",
-    Theme = "Black",
-    Accent = Color3.fromRGB(145, 160, 255),
-    Accent2 = Color3.fromRGB(95, 105, 255),
-    Size = UDim2.fromOffset(860, 620),
+    Name = "Garden Buddy",
+    Subtitle = "PILIH MODE • ATUR • JALAN",
+    Theme = {
+        Background = Color3.fromRGB(10, 20, 15),
+        Panel = Color3.fromRGB(18, 32, 24),
+        Panel2 = Color3.fromRGB(28, 47, 35),
+        Panel3 = Color3.fromRGB(42, 65, 49),
+        Text = Color3.fromRGB(241, 248, 237),
+        Muted = Color3.fromRGB(169, 190, 171),
+        Accent = Color3.fromRGB(98, 214, 142),
+        Accent2 = Color3.fromRGB(244, 177, 82),
+        Danger = Color3.fromRGB(235, 87, 87),
+        Stroke = Color3.fromRGB(67, 96, 72),
+        DarkText = Color3.fromRGB(8, 19, 12),
+        Shadow = Color3.fromRGB(0, 0, 0),
+    },
+    Size = UDim2.fromOffset(760, 520),
+    Blur = false,
     ToggleKey = Enum.KeyCode.LeftControl,
 })
 
-local dashboardTab = ui:Tab("Dashboard")
+local dashboardTab = ui:Tab("Mulai")
 local farmTab = ui:Tab("Farm")
 local boostsTab = ui:Tab("Boosts")
 local petsTab = ui:Tab("Pets")
-local openTab = ui:Tab("Eggs & Crates")
-local shopTab = ui:Tab("Shop")
-local stealTab = ui:Tab("Steal")
-local miscTab = ui:Tab("Misc")
-local settingsTab = ui:Tab("Settings")
+local toolsTab = ui:Tab("Lainnya")
+local settingsTab = ui:Tab("Atur")
 
 -- Sidebar kiri sekarang scrollable: mouse wheel / drag di area tab untuk akses tab bawah.
 currentPreset = currentPreset or "Manual"
@@ -3386,20 +3528,21 @@ end
 local dashPreset, dashFarm, dashCash, dashStats
 local plotLabel, cashLabel, statLabel
 do
-local secDash = dashboardTab:Section("Quick Status")
+local secDash = dashboardTab:Section("Status Kebun")
 dashPreset = secDash:Label("Preset: Manual")
 dashFarm = secDash:Label("Farm: OFF")
 dashCash = secDash:Label("Sheckles: …")
 dashStats = secDash:Label("bought 0 · planted 0 · harvested 0 · sold 0")
 
-local secQuick = dashboardTab:Section("Quick Presets")
-secQuick:Button("Manual / Stop All", function() applyGuiPreset("Manual") end)
-secQuick:Button("Starter — akun baru", function() applyGuiPreset("Starter") end)
-secQuick:Button("Balanced — umum", function() applyGuiPreset("Balanced") end)
-secQuick:Button("Rich — akun besar", function() applyGuiPreset("Rich") end)
-secQuick:Button("Alt → Main", function() applyGuiPreset("AltToMain") end)
-secQuick:Button("Low PC / HP berat", function() applyGuiPreset("LowPC") end)
-secQuick:Button("AFK Farm Mode", function()
+local secQuick = dashboardTab:Section("Mulai Cepat")
+secQuick:Label("Pilih satu mode. Detailnya bisa diatur di tab Farm.")
+secQuick:Button("STOP — Matikan Semua", function() applyGuiPreset("Manual") end)
+secQuick:Button("Mulai Santai — Balanced", function() applyGuiPreset("Balanced") end)
+secQuick:Button("Akun Baru — Starter", function() applyGuiPreset("Starter") end)
+secQuick:Button("Kebun Besar — Rich", function() applyGuiPreset("Rich") end)
+secQuick:Button("Alt Kirim ke Main", function() applyGuiPreset("AltToMain") end)
+secQuick:Button("HP / PC Lemah", function() applyGuiPreset("LowPC") end)
+secQuick:Button("AFK Ringan", function()
     applyGuiPreset("Balanced")
     S.autoHop = false; S.allowServerHop = false; S.antiAfk = true; S.fpsBoost = true
     pcall(function() applyFpsBoost(true) end)
@@ -3407,11 +3550,11 @@ secQuick:Button("AFK Farm Mode", function()
     warn("[Preset] AFK Farm Mode ON")
 end)
 
-local secDashTips = dashboardTab:Section("Alur Pakai")
-secDashTips:Label("1) Pilih preset di atas, atau tetap Manual")
-secDashTips:Label("2) Atur detail di tab Farm / Boosts / Pets")
-secDashTips:Label("3) Server-hop = rejoin, biarkan OFF kalau AFK")
-secDashTips:Button("Copy Debug Info", copyDebugInfo)
+local secDashTips = dashboardTab:Section("Panduan 3 Langkah")
+secDashTips:Label("1. Pilih mode cepat di atas")
+secDashTips:Label("2. Buka Farm untuk pilih seed dan jual otomatis")
+secDashTips:Label("3. Server-hop tetap OFF kecuali memang diperlukan")
+secDashTips:Button("Salin Info Debug", copyDebugInfo)
 
 end
 
@@ -3422,141 +3565,143 @@ plotLabel = secStatus:Label("Plot: …")
 cashLabel = secStatus:Label("Sheckles: …")
 statLabel = secStatus:Label("—")
 
-local secMaster = farmTab:Section("Auto-Farm (master)")
-secMaster:Toggle("Auto-Farm (buy+plant+harvest+sell+expand)", false, function(v) S.autoFarm = v end)
-secMaster:Toggle("Auto-Expand garden", false, function(v) S.autoExpand = v end)
-secMaster:Toggle("Auto-Daily deals", false, function(v) S.autoDaily = v end)
+local secMaster = farmTab:Section("1. Jalankan Farm")
+secMaster:Label("Paling mudah: aktifkan Auto-Farm, lalu pilih seed di bawah.")
+secMaster:Toggle("Auto-Farm", false, function(v) S.autoFarm = v end)
+secMaster:Toggle("Perluas Kebun Otomatis", false, function(v) S.autoExpand = v end)
+secMaster:Toggle("Daily Deal Otomatis", false, function(v) S.autoDaily = v end)
 
-local secBuy = farmTab:Section("Buy seeds")
-secBuy:Dropdown("Seed to buy", SEED_NAMES, "Carrot", function(sel) pickMulti(sel, S.buySeeds) end)
-secBuy:Toggle("Auto-Buy selected", false, function(v) S.autoBuy = v end)
-secBuy:Slider("Buy interval (s)", 0.2, 0.2, 30, function(v) S.buyInterval = v end)
-secBuy:Slider("Max buys / seed / pass", 50, 1, 50, function(v) S.buyPerTick = v end)
+local secBuy = farmTab:Section("2. Siapkan Bibit")
+secBuy:Dropdown("Pilih Seed", SEED_NAMES, "Carrot", function(sel) pickMulti(sel, S.buySeeds) end)
+secBuy:Toggle("Beli Seed Otomatis", false, function(v) S.autoBuy = v end)
+secBuy:Slider("Jeda Beli (detik)", 0.2, 0.2, 30, function(v) S.buyInterval = v end)
+secBuy:Slider("Maksimum Beli per Putaran", 50, 1, 50, function(v) S.buyPerTick = v end)
 
-local secPlant = farmTab:Section("Plant / Harvest / Sell")
+local secPlant = farmTab:Section("3. Tanam, Panen, Jual")
 local plantOpts = { "Best owned" }; for _, n in ipairs(SEED_NAMES) do plantOpts[#plantOpts + 1] = n end
-secPlant:Dropdown("Seed to plant", plantOpts, "Best owned", function(v) S.plantSeed = v end)
-secPlant:Toggle("Auto-Plant (fill plot)", false, function(v) S.autoPlant = v end)
-secPlant:Slider("Plant spacing (studs)", 4, 2, 10, function(v) S.plantSpacing = v end)
-secPlant:Toggle("Auto-Harvest ripe fruit", false, function(v) S.autoHarvest = v end)
-secPlant:Toggle("Spam Harvest mode (large garden)", true, function(v) S.spamHarvest = v end)
-secPlant:Toggle("Turbo Condition Spam (parallel)", true, function(v) S.turboFarm = v; if v then S.spamHarvest = true end end)
-secPlant:Slider("Spam harvest batch", 50, 5, 100, function(v) S.spamHarvestBatch = math.floor(v) end)
-secPlant:Slider("Harvest pace (s/fruit · 0.02≈max)", 0, 0, 0.2, function(v) S.harvestDelay = v end)
-secPlant:Toggle("Auto-Sell (sell when fruit >= Sell At)", false, function(v) S.autoSell = v end)
-secPlant:Slider("Sell At fruit count", 85, 1, 200, function(v) S.sellAt = math.floor(v) end)
-secPlant:Slider("Sell interval (s, sell-only mode)", 15, 3, 120, function(v) S.sellInterval = v end)
-secPlant:Toggle("Auto-Pot grown plants", false, function(v) S.autoPot = v end)
-secPlant:Toggle("Auto-Shovel non-target when full", false, function(v) S.autoReplacePlants = v end)
-secPlant:Slider("Shovel max / cycle", 8, 1, 30, function(v) S.shovelPerCycle = math.floor(v) end)
-secPlant:Button("Copy Plant Cap Debug", function() return sharedEnv.GAGPlantCapDebug() end)
+secPlant:Dropdown("Seed untuk Ditanam", plantOpts, "Best owned", function(v) S.plantSeed = v end)
+secPlant:Toggle("Tanam Otomatis", false, function(v) S.autoPlant = v end)
+secPlant:Slider("Jarak Tanam", 4, 2, 10, function(v) S.plantSpacing = v end)
+secPlant:Toggle("Panen Buah Matang", false, function(v) S.autoHarvest = v end)
+secPlant:Toggle("Jual Otomatis", false, function(v) S.autoSell = v end)
+secPlant:Slider("Jual Saat Buah", 85, 1, 200, function(v) S.sellAt = math.floor(v) end)
+secPlant:Toggle("Ganti Tanaman Saat Penuh", false, function(v) S.autoReplacePlants = v end)
+
+local secSpeed = farmTab:Section("Kecepatan & Debug (Lanjutan)")
+secSpeed:Toggle("Panen Cepat untuk Kebun Besar", true, function(v) S.spamHarvest = v end)
+secSpeed:Toggle("Worker Turbo", true, function(v) S.turboFarm = v; if v then S.spamHarvest = true end end)
+secSpeed:Slider("Batch Panen", 50, 5, 100, function(v) S.spamHarvestBatch = math.floor(v) end)
+secSpeed:Slider("Jeda Panen", 0, 0, 0.2, function(v) S.harvestDelay = v end)
+secSpeed:Slider("Jeda Jual", 15, 3, 120, function(v) S.sellInterval = v end)
+secSpeed:Toggle("Pot Tanaman Otomatis", false, function(v) S.autoPot = v end)
+secSpeed:Slider("Maksimum Sekop per Putaran", 8, 1, 30, function(v) S.shovelPerCycle = math.floor(v) end)
+secSpeed:Button("Salin Debug Plant Cap", function() return sharedEnv.GAGPlantCapDebug() end)
 
 end
 
 -- ---- BOOSTS ----
 do
-local secSpr = boostsTab:Section("Sprinklers & Water")
-secSpr:Toggle("Auto-place Sprinklers", false, function(v) S.autoSprinkler = v end)
-secSpr:Slider("Sprinkler target count", 4, 1, 12, function(v) S.sprinklerTarget = math.floor(v) end)
-secSpr:Dropdown("Best sprinkler up to", SPRINKLER_GEAR_NAMES, "", function(v) S.bestSprinklerUpTo = tostring(v or "") end)
-secSpr:Slider("Sprinkler interval (s)", 30, 10, 120, function(v) S.sprinklerInterval = v end)
-secSpr:Toggle("Auto-Watering Can", false, function(v) S.autoWater = v end)
-secSpr:Slider("Water interval (s)", 8, 2, 60, function(v) S.waterInterval = v end)
+local secSpr = boostsTab:Section("Sprinkler & Air")
+secSpr:Label("Gunakan setelah farm dasar sudah berjalan.")
+secSpr:Toggle("Pasang Sprinkler Otomatis", false, function(v) S.autoSprinkler = v end)
+secSpr:Slider("Jumlah Sprinkler", 4, 1, 12, function(v) S.sprinklerTarget = math.floor(v) end)
+secSpr:Dropdown("Sprinkler Terbaik Sampai", SPRINKLER_GEAR_NAMES, "", function(v) S.bestSprinklerUpTo = tostring(v or "") end)
+secSpr:Slider("Jeda Sprinkler", 30, 10, 120, function(v) S.sprinklerInterval = v end)
+secSpr:Toggle("Siram Otomatis", false, function(v) S.autoWater = v end)
+secSpr:Slider("Jeda Siram", 8, 2, 60, function(v) S.waterInterval = v end)
 
-local secSkill = boostsTab:Section("Skill points")
-secSkill:Dropdown("Stats to level", { "BaseSpeed", "BaseJump", "ShovelPower", "MaxBackpack" }, {}, function(sel) pickMulti(sel, S.skillStats) end)
-secSkill:Button("Auto Upgrade Inventory", function() S.skillStats = { MaxBackpack = true }; S.autoSkill = true; warn("[Skill] Auto Upgrade Inventory ON") end)
-secSkill:Toggle("Auto-Spend skill points", false, function(v) S.autoSkill = v end)
+local secSkill = boostsTab:Section("Skill Point")
+secSkill:Dropdown("Stat untuk Dinaikkan", { "BaseSpeed", "BaseJump", "ShovelPower", "MaxBackpack" }, {}, function(sel) pickMulti(sel, S.skillStats) end)
+secSkill:Button("Utamakan Kapasitas Tas", function() S.skillStats = { MaxBackpack = true }; S.autoSkill = true; warn("[Skill] Auto Upgrade Inventory ON") end)
+secSkill:Toggle("Pakai Skill Point Otomatis", false, function(v) S.autoSkill = v end)
 
 end
 
 -- ---- PETS ----
 do
-local secPet = petsTab:Section("Pets")
-secPet:Dropdown("Pet to equip priority", ownedPetNames(), "", function(sel) pickMulti(sel, S.equipPets) end)
-secPet:Toggle("Auto-Equip pets (to slot cap)", false, function(v) S.autoEquipPets = v end)
-secPet:Toggle("Auto-Buy pet slots", false, function(v) S.autoPetSlot = v end)
-secPet:Toggle("Auto-Buy world pets (walk up & buy)", false, function(v) S.autoBuyPets = v end)
-secPet:Slider("Max pet price (Sheckles)", 25000, 1000, 1000000, function(v) S.maxPetPrice = v end)
-secPet:Toggle("Teleport to pet (needed to buy)", true, function(v) S.petTeleport = v end)
-secPet:Slider("Pet buy interval (s)", 5, 2, 60, function(v) S.petBuyInterval = v end)
+local secPet = petsTab:Section("Pet Aktif")
+secPet:Dropdown("Prioritas Pet", ownedPetNames(), "", function(sel) pickMulti(sel, S.equipPets) end)
+secPet:Toggle("Pakai Pet Otomatis", false, function(v) S.autoEquipPets = v end)
+secPet:Toggle("Beli Slot Pet Otomatis", false, function(v) S.autoPetSlot = v end)
+secPet:Toggle("Beli Pet Dunia Otomatis", false, function(v) S.autoBuyPets = v end)
+secPet:Slider("Harga Pet Maksimum", 25000, 1000, 1000000, function(v) S.maxPetPrice = v end)
+secPet:Toggle("Teleport ke Pet", true, function(v) S.petTeleport = v end)
+secPet:Slider("Jeda Beli Pet", 5, 2, 60, function(v) S.petBuyInterval = v end)
 
-local secPetSell = petsTab:Section("Sell pets")
-secPetSell:Dropdown("Pets to sell", ownedPetNames(), {}, function(sel) pickMulti(sel, S.sellPets) end)
-secPetSell:Toggle("Auto-Sell selected pets", false, function(v) S.autoSellPets = v end)
+local secPetSell = petsTab:Section("Jual Pet")
+secPetSell:Dropdown("Pet untuk Dijual", ownedPetNames(), {}, function(sel) pickMulti(sel, S.sellPets) end)
+secPetSell:Toggle("Jual Pet Terpilih Otomatis", false, function(v) S.autoSellPets = v end)
 
 end
 
 -- ---- EGGS & CRATES ----
 do
-local secOpen = openTab:Section("Auto-Open")
-secOpen:Toggle("Auto-Open Eggs", false, function(v) S.autoEgg = v end)
-secOpen:Toggle("Auto-Open Crates", false, function(v) S.autoCrate = v end)
-secOpen:Toggle("Auto-Open Seed Packs", false, function(v) S.autoPack = v end)
-secOpen:Slider("Open interval (s)", 4, 1, 30, function(v) S.openInterval = v end)
-local secOpenInfo = openTab:Section("Info")
-secOpenInfo:Label("Opens everything you own in each")
-secOpenInfo:Label("category. Confirm is automatic.")
+local secOpen = toolsTab:Section("Buka Item")
+secOpen:Toggle("Buka Egg Otomatis", false, function(v) S.autoEgg = v end)
+secOpen:Toggle("Buka Crate Otomatis", false, function(v) S.autoCrate = v end)
+secOpen:Toggle("Buka Seed Pack Otomatis", false, function(v) S.autoPack = v end)
+secOpen:Slider("Jeda Membuka", 4, 1, 30, function(v) S.openInterval = v end)
+local secOpenInfo = toolsTab:Section("Catatan")
+secOpenInfo:Label("Membuka semua item pada kategori yang dipilih.")
 
 end
 
 -- ---- SHOP ----
 do
-local secShop = shopTab:Section("Gear shop")
-secShop:Dropdown("Gear to buy", GEAR_NAMES, {}, function(sel) pickMulti(sel, S.gearBuy) end)
-secShop:Toggle("Auto-Buy selected gear", false, function(v) S.autoGear = v end)
-secShop:Slider("Gear buy interval (s)", 10, 2, 60, function(v) S.gearInterval = v end)
+local secShop = toolsTab:Section("Belanja Gear")
+secShop:Dropdown("Gear yang Dibeli", GEAR_NAMES, {}, function(sel) pickMulti(sel, S.gearBuy) end)
+secShop:Toggle("Beli Gear Otomatis", false, function(v) S.autoGear = v end)
+secShop:Slider("Jeda Beli Gear", 10, 2, 60, function(v) S.gearInterval = v end)
 
 end
 
 -- ---- STEAL ----
 do
-local secSteal = stealTab:Section("Auto-Steal (night only)")
-secSteal:Toggle("Auto-Steal others' ripe fruit", false, function(v) S.autoSteal = v end)
-secSteal:Toggle("Teleport to fruit (needed to steal)", true, function(v) S.stealTeleport = v end)
-secSteal:Toggle("Return to base after each fruit (banks it)", true, function(v) S.stealReturnBase = v end)
-secSteal:Slider("Steal speed (delay/fruit, 0=instant)", 0.05, 0, 1, function(v) S.stealDelay = v end)
-local secStealInfo = stealTab:Section("Info")
-secStealInfo:Label("Night-only · TP to fruit, steal,")
-secStealInfo:Label("then TP home to bank each one.")
+local secSteal = toolsTab:Section("Ambil Buah Malam")
+secSteal:Toggle("Ambil Buah Pemain Lain", false, function(v) S.autoSteal = v end)
+secSteal:Toggle("Teleport ke Buah", true, function(v) S.stealTeleport = v end)
+secSteal:Toggle("Pulang ke Kebun Setelah Ambil", true, function(v) S.stealReturnBase = v end)
+secSteal:Slider("Jeda per Buah", 0.05, 0, 1, function(v) S.stealDelay = v end)
+local secStealInfo = toolsTab:Section("Cara Kerja")
+secStealInfo:Label("Hanya malam: ambil buah lalu kembali ke kebun.")
 
 end
 
 -- ---- MISC ----
 do
-local secMail = miscTab:Section("Mail & Gifts")
-secMail:Toggle("Auto-Claim mailbox", false, function(v) S.autoMail = v end)
-secMail:Toggle("Auto-Accept gifts", false, function(v) S.autoAcceptGift = v end)
+local secMail = toolsTab:Section("Mail & Gift")
+secMail:Toggle("Klaim Mail Otomatis", false, function(v) S.autoMail = v end)
+secMail:Toggle("Terima Gift Otomatis", false, function(v) S.autoAcceptGift = v end)
 
-local secHop = miscTab:Section("Session")
-secHop:Toggle("Anti-AFK (never idle-kicked)", true, function(v) S.antiAfk = v end)
-secHop:Toggle("Auto server-hop (rejoin)", false, function(v) S.autoHop = v; S.allowServerHop = v end)
-secHop:Slider("Hop every (min, 0=off)", 0, 0, 120, function(v) S.hopInterval = v * 60 end)
+local secHop = toolsTab:Section("Sesi")
+secHop:Toggle("Anti-AFK", true, function(v) S.antiAfk = v end)
+secHop:Toggle("Pindah Server Otomatis", false, function(v) S.autoHop = v; S.allowServerHop = v end)
+secHop:Slider("Pindah Server tiap Menit", 0, 0, 120, function(v) S.hopInterval = v * 60 end)
 
-local secCode = miscTab:Section("Codes")
-secCode:Textbox("Redeem a code", "enter code", function(text)
+local secCode = toolsTab:Section("Kode")
+secCode:Textbox("Tukar Kode", "masukkan kode", function(text)
     if text and text ~= "" then
         local ok, res = fire("Settings.SubmitCode", text)
         warn("[Code] " .. ((ok and res == true) and ("Redeemed: " .. text) or ("Invalid: " .. text)))
     end
 end)
-secCode:Toggle("Auto-redeem code list", false, function(v) S.autoCodes = v end)
+secCode:Toggle("Tukar Daftar Kode Otomatis", false, function(v) S.autoCodes = v end)
 
 end
 
 -- ---- SETTINGS ----
 do
-local secPreset = settingsTab:Section("Preset Farm")
-secPreset:Label("Default Manual: pilih preset kalau mau auto-set farm")
-secPreset:Dropdown("Select preset", { "Manual", "Starter", "Balanced", "Rich", "AltToMain", "LowPC" }, "Manual", applyGuiPreset)
+local secPreset = settingsTab:Section("Mode Farm")
+secPreset:Label("Default Manual. Pilih mode bila ingin pengaturan otomatis.")
+secPreset:Dropdown("Pilih Mode", { "Manual", "Starter", "Balanced", "Rich", "AltToMain", "LowPC" }, "Manual", applyGuiPreset)
 
-local secPerf = settingsTab:Section("Performance & Interface")
-secPerf:Toggle("FPS Boost (low graphics)", false, function(v) S.fpsBoost = v; applyFpsBoost(v) end)
-secPerf:Toggle("Ultra Performance (Disable 3D)", false, function(v) applyUltraPerformance(v) end)
-secPerf:Label("Ultra mode bikin layar hitam/minimal tapi GUI tetap jalan")
-secPerf:Button("Unload hub (stops everything)", function() S.killed = true; pcall(function() applyUltraPerformance(false) end); pcall(function() ui:Destroy() end) end)
+local secPerf = settingsTab:Section("Tampilan & Performa")
+secPerf:Toggle("FPS Boost", false, function(v) S.fpsBoost = v; applyFpsBoost(v) end)
+secPerf:Toggle("Ultra Hemat (Matikan 3D)", false, function(v) applyUltraPerformance(v) end)
+secPerf:Label("Ultra Hemat membuat layar gelap, tetapi GUI tetap berjalan.")
+secPerf:Button("Tutup Hub & Hentikan Semua", function() S.killed = true; pcall(function() applyUltraPerformance(false) end); pcall(function() ui:Destroy() end) end)
 
-local secWeb = settingsTab:Section("Discord Webhook")
+local secWeb = settingsTab:Section("Discord Webhook (Lanjutan)")
 secWeb:Textbox("Webhook URL", "https://discord.com/api/webhooks/...", function(t) S.webhookUrl = t or "" end)
 secWeb:Toggle("Enable webhook", false, function(v) S.webhookEnabled = v end)
 secWeb:Toggle("Send live action logs", true, function(v) S.webhookEvents = v end)
@@ -3564,9 +3709,9 @@ secWeb:Toggle("Send interval reports", true, function(v) S.webhookReport = v end
 secWeb:Slider("Report interval (min)", 5, 1, 60, function(v) S.webhookInterval = math.max(30, v * 60) end)
 secWeb:Button("Send test report", function() task.spawn(function() sendWebhook(true) end) end)
 
-local secInfo = settingsTab:Section("Info")
-secInfo:Label("Grow a Garden 2 · WalkyHub")
-secInfo:Label("Hotkey: Left Ctrl toggles UI")
+local secInfo = settingsTab:Section("Bantuan")
+secInfo:Label("Garden Buddy • status dan kontrol ringkas")
+secInfo:Label("Tekan Left Ctrl untuk menyembunyikan atau membuka GUI")
 
 end
 
