@@ -62,7 +62,8 @@ if type(loadstring) ~= "function" then
 end
 
 local okHttp, source = pcall(function()
-    return game:HttpGet(URL, true)
+    -- Disable executor-side HTTP caching so each run receives the latest build.
+    return game:HttpGet(URL, false)
 end)
 
 if not okHttp or type(source) ~= "string" or #source < 20 then
