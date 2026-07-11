@@ -2156,12 +2156,7 @@ local S = {
     killed = false,
 }
 local currentPreset = "Manual"
-local autoFarmControl
-local autoPlantControl
-local autoHarvestControl
-local autoSellControl
-local autoReplaceControl
-local replaceFieldControl
+local farmControls = {}
 local Stats = { bought = 0, planted = 0, harvested = 0, sold = 0, earned = 0,
     sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock(),
     state = "IDLE", lastAction = "idle", petLast = "idle", plantLastError = "none", shovelLastError = "none", webhookLastOk = 0, webhookNextAt = 0, webhookLastError = "none" }
@@ -2308,11 +2303,11 @@ local function gagApplyConfig(raw)
     if m["Auto Expand Plot"] ~= nil then S.autoExpand = m["Auto Expand Plot"] == true end
     if m["Auto Replace Plants"] ~= nil then
         S.autoReplacePlants = m["Auto Replace Plants"] == true
-        if autoReplaceControl then autoReplaceControl:Set(S.autoReplacePlants, false) end
+        if farmControls.autoReplace then farmControls.autoReplace:Set(S.autoReplacePlants, false) end
     end
     if m["Replace Field With Target"] ~= nil then
         S.replaceFieldWithTarget = m["Replace Field With Target"] == true
-        if replaceFieldControl then replaceFieldControl:Set(S.replaceFieldWithTarget, false) end
+        if farmControls.replaceField then farmControls.replaceField:Set(S.replaceFieldWithTarget, false) end
     end
     if misc["Auto Daily Deal"] ~= nil then S.autoDaily = misc["Auto Daily Deal"] == true end
 
@@ -2358,10 +2353,10 @@ local function gagApplyConfig(raw)
         S.autoPlant = true
         S.autoHarvest = true
         S.autoSell = true
-        if autoFarmControl then autoFarmControl:Set(true, false) end
-        if autoPlantControl then autoPlantControl:Set(true, false) end
-        if autoHarvestControl then autoHarvestControl:Set(true, false) end
-        if autoSellControl then autoSellControl:Set(true, false) end
+        if farmControls.autoFarm then farmControls.autoFarm:Set(true, false) end
+        if farmControls.autoPlant then farmControls.autoPlant:Set(true, false) end
+        if farmControls.autoHarvest then farmControls.autoHarvest:Set(true, false) end
+        if farmControls.autoSell then farmControls.autoSell:Set(true, false) end
         currentPreset = presetName
         Stats.lastAction = "preset " .. tostring(presetName) .. ": farm started"
     end
@@ -3631,12 +3626,12 @@ local function setManualOff()
     S.autoEgg = false; S.autoCrate = false; S.autoPack = false; S.autoGear = false; S.autoSteal = false
     S.autoMail = false; S.autoAcceptGift = false; S.autoHop = false; S.allowServerHop = false; S.autoCodes = false; S.ultraPerformance = false
     replacementSlotPending = false
-    if autoFarmControl then autoFarmControl:Set(false, false) end
-    if autoPlantControl then autoPlantControl:Set(false, false) end
-    if autoHarvestControl then autoHarvestControl:Set(false, false) end
-    if autoSellControl then autoSellControl:Set(false, false) end
-    if autoReplaceControl then autoReplaceControl:Set(false, false) end
-    if replaceFieldControl then replaceFieldControl:Set(false, false) end
+    if farmControls.autoFarm then farmControls.autoFarm:Set(false, false) end
+    if farmControls.autoPlant then farmControls.autoPlant:Set(false, false) end
+    if farmControls.autoHarvest then farmControls.autoHarvest:Set(false, false) end
+    if farmControls.autoSell then farmControls.autoSell:Set(false, false) end
+    if farmControls.autoReplace then farmControls.autoReplace:Set(false, false) end
+    if farmControls.replaceField then farmControls.replaceField:Set(false, false) end
     currentPreset = "Manual"
     warn("[GAGConfig] Manual selected: all automation OFF")
 end
@@ -3710,7 +3705,7 @@ statLabel = secStatus:Label("—")
 
 local secMaster = farmTab:Section("1. Jalankan Farm")
 secMaster:Label("Paling mudah: aktifkan Auto-Farm, lalu pilih seed di bawah.")
-autoFarmControl = secMaster:Toggle("Auto-Farm", S.autoFarm, function(v) S.autoFarm = v end)
+farmControls.autoFarm = secMaster:Toggle("Auto-Farm", S.autoFarm, function(v) S.autoFarm = v end)
 secMaster:Toggle("Perluas Kebun Otomatis", false, function(v) S.autoExpand = v end)
 secMaster:Toggle("Daily Deal Otomatis", false, function(v) S.autoDaily = v end)
 
@@ -3723,13 +3718,13 @@ secBuy:Slider("Maksimum Beli per Putaran", 50, 1, 50, function(v) S.buyPerTick =
 local secPlant = farmTab:Section("3. Tanam, Panen, Jual")
 local plantOpts = { "Best owned" }; for _, n in ipairs(SEED_NAMES) do plantOpts[#plantOpts + 1] = n end
 secPlant:Dropdown("Seed untuk Ditanam", plantOpts, "Best owned", function(v) S.plantSeed = v end)
-autoPlantControl = secPlant:Toggle("Tanam Otomatis", S.autoPlant, function(v) S.autoPlant = v end)
+farmControls.autoPlant = secPlant:Toggle("Tanam Otomatis", S.autoPlant, function(v) S.autoPlant = v end)
 secPlant:Slider("Jarak Tanam", 4, 2, 10, function(v) S.plantSpacing = v end)
-autoHarvestControl = secPlant:Toggle("Panen Buah Matang", S.autoHarvest, function(v) S.autoHarvest = v end)
-autoSellControl = secPlant:Toggle("Jual Otomatis", S.autoSell, function(v) S.autoSell = v end)
+farmControls.autoHarvest = secPlant:Toggle("Panen Buah Matang", S.autoHarvest, function(v) S.autoHarvest = v end)
+farmControls.autoSell = secPlant:Toggle("Jual Otomatis", S.autoSell, function(v) S.autoSell = v end)
 secPlant:Slider("Jual Saat Buah", 85, 1, 200, function(v) S.sellAt = math.floor(v) end)
-autoReplaceControl = secPlant:Toggle("Ganti Tanaman Saat Penuh", S.autoReplacePlants, function(v) S.autoReplacePlants = v end)
-replaceFieldControl = secPlant:Toggle("Ganti Field ke Seed Pilihan", S.replaceFieldWithTarget, function(v) S.replaceFieldWithTarget = v end)
+farmControls.autoReplace = secPlant:Toggle("Ganti Tanaman Saat Penuh", S.autoReplacePlants, function(v) S.autoReplacePlants = v end)
+farmControls.replaceField = secPlant:Toggle("Ganti Field ke Seed Pilihan", S.replaceFieldWithTarget, function(v) S.replaceFieldWithTarget = v end)
 
 local secSpeed = farmTab:Section("Kecepatan & Debug (Lanjutan)")
 secSpeed:Toggle("Panen Cepat untuk Kebun Besar", true, function(v) S.spamHarvest = v end)
