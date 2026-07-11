@@ -3681,6 +3681,22 @@ sharedEnv.GAGPlantCapDebug = function()
     local first = plants and plants:GetChildren()[1] or nil
     local tool = pickPlantTool()
     local seed = tool and normalizeSeedName(tool:GetAttribute("SeedTool") or tool:GetAttribute("SeedName") or tool.Name) or "none"
+    local seedTools = {}
+    for _, container in ipairs({ LocalPlayer:FindFirstChild("Backpack"), LocalPlayer.Character }) do
+        if container then
+            for _, item in ipairs(container:GetChildren()) do
+                if item:IsA("Tool") then
+                    local seedTool = item:GetAttribute("SeedTool")
+                    local seedName = item:GetAttribute("SeedName")
+                    if seedTool or seedName or string.find(string.lower(item.Name), "bamboo", 1, true) then
+                        seedTools[#seedTools + 1] = container.Name .. "/" .. item.Name
+                            .. " SeedTool=" .. tostring(seedTool)
+                            .. " SeedName=" .. tostring(seedName)
+                    end
+                end
+            end
+        end
+    end
     local lines = {
         "[GAG PLANT CAP DEBUG]",
         "Plot=" .. tostring(plot and plot.Name or "nil"),
@@ -3694,6 +3710,7 @@ sharedEnv.GAGPlantCapDebug = function()
         "NextSeedTool=" .. tostring(seed),
         "TargetSeeds=" .. selectedNames(targetPlantMap(seed)),
         "TargetSeedTools=" .. tostring(countTargetSeedTools(targetPlantMap(seed))),
+        "DetectedSeedTools=" .. (#seedTools > 0 and table.concat(seedTools, " | ") or "none"),
         "PlantLastError=" .. tostring(Stats.plantLastError),
         "ShovelLastError=" .. tostring(Stats.shovelLastError),
         "ShovelActions=" .. availableActions(SHOVEL_ACTIONS),
