@@ -1986,7 +1986,7 @@ local function shovelPlantModel(m)
     return ok == true
 end
 
-local function stepShovelForPlanting(seedName)
+local function stepShovelForPlanting(seedName, maxToRemove)
     if not S.autoReplacePlants then return 0 end
     if not due("autoShovelReplace", 1.5) then return 0 end
     local targets = targetPlantMap(seedName)
@@ -2001,7 +2001,7 @@ local function stepShovelForPlanting(seedName)
         Stats.shovelLastError = "Plants folder was not found in own plot"
         return 0
     end
-    local maxRemove = math.min(seedReady, tonumber(S.shovelPerCycle) or 8)
+    local maxRemove = math.min(seedReady, maxToRemove or tonumber(S.shovelPerCycle) or 8)
     local removed, replaceable = 0, 0
     for _, m in ipairs(plants:GetChildren()) do
         if removed >= maxRemove or not (S.autoFarm or S.autoPlant) then break end
@@ -2132,7 +2132,7 @@ local S = {
     autoPlant = false, plantSpacing = 4, plantSeed = "Best owned", plantPlan = {}, plantLimit = 0, keepSeeds = {}, minimumSeed = "",
     autoHarvest = false, harvestInterval = 2, harvestDelay = 0, spamHarvest = true, turboFarm = true, spamHarvestBatch = 50, onlyHarvest = {}, dontHarvest = {}, neverSellFruit = {}, neverSellMut = {},
     autoSell = false, sellAt = 85, sellInterval = 15,
-    autoExpand = false, autoPot = false, autoDaily = false, autoReplacePlants = false, shovelPerCycle = 8,
+    autoExpand = false, autoPot = false, autoDaily = false, autoReplacePlants = false, replaceFieldWithTarget = false, shovelPerCycle = 8,
     -- boosts
     autoSprinkler = false, sprinklerInterval = 30, sprinklerTarget = 4, bestSprinklerUpTo = "",
     autoWater = false, waterInterval = 8,
@@ -2161,6 +2161,7 @@ local autoPlantControl
 local autoHarvestControl
 local autoSellControl
 local autoReplaceControl
+local replaceFieldControl
 local Stats = { bought = 0, planted = 0, harvested = 0, sold = 0, earned = 0,
     sprinklers = 0, watered = 0, tamed = 0, opened = 0, stolen = 0, codes = 0, startAt = os.clock(),
     state = "IDLE", lastAction = "idle", petLast = "idle", plantLastError = "none", shovelLastError = "none", webhookLastOk = 0, webhookNextAt = 0, webhookLastError = "none" }
@@ -2216,8 +2217,8 @@ local GAG_PRESETS = {
     },
     Balanced = {
         Harvest = { ["Auto Harvest"] = true, ["Sell At"] = 85, ["Sell Every"] = 40 },
-        Planting = { ["Auto Plant"] = true, ["Buy Seeds"] = { "Bamboo" }, Layout = "compact", ["Minimum Seed"] = "Bamboo", ["Keep Seeds"] = { ["Dragon's Breath"] = 5, ["Moon Bloom"] = 5, ["Gold"] = 5, ["Rainbow"] = 5 } },
-        Money = { ["Keep Cash"] = 15000, ["Auto Expand Plot"] = true, ["Expand If Over"] = 1500000, ["Auto Replace Plants"] = true },
+        Planting = { ["Auto Plant"] = true, ["Buy Seeds"] = { "Bamboo" }, ["Only Plant"] = { "Bamboo" }, Layout = "compact", ["Minimum Seed"] = "Bamboo", ["Keep Seeds"] = { ["Dragon's Breath"] = 5, ["Moon Bloom"] = 5, ["Gold"] = 5, ["Rainbow"] = 5 } },
+        Money = { ["Keep Cash"] = 15000, ["Auto Expand Plot"] = true, ["Expand If Over"] = 1500000, ["Auto Replace Plants"] = true, ["Replace Field With Target"] = true },
         Pets = { Buy = { "Unicorn", "GoldenDragonfly", ["Deer"] = 6 }, Equip = { "Unicorn", "GoldenDragonfly", "Deer" }, ["Auto Buy Slots"] = true },
         Gear = { ["Keep Cash"] = 15000, ["Sprinkler Coverage"] = "concentrate", ["Place Sprinklers"] = { ["best"] = 4 }, ["Best Sprinkler Up To"] = "Rare Sprinkler" },
         ["Event Seeds"] = { ["Auto Claim"] = true },
@@ -2298,7 +2299,8 @@ local function gagApplyConfig(raw)
     if type(p["Minimum Seed"]) == "string" then S.minimumSeed = normalizeSeedName(p["Minimum Seed"]) or "" end
     local onlyPlant = gagFirstName(p["Only Plant"] or p["Plant Plan"])
     if onlyPlant then S.plantSeed = onlyPlant end
-    if type(p["Plant Plan"]) == "table" then S.plantPlan = gagClone(p["Plant Plan"]) end
+    if type(p["Plant Plan"]) == "table" then S.plantPlan = gagClone(p["Plant Plan"])
+    elseif presetName then S.plantPlan = {} end
     if type(p["Keep Seeds"]) == "table" then S.keepSeeds = gagClone(p["Keep Seeds"]) end
     if p["Plant Limit"] ~= nil then S.plantLimit = math.max(0, tonumber(p["Plant Limit"]) or 0) end
     if type(p["Buy Seeds"]) == "table" then gagSetMapFromList(S.buySeeds, p["Buy Seeds"]); S.autoBuy = picked(S.buySeeds) end
@@ -2307,6 +2309,10 @@ local function gagApplyConfig(raw)
     if m["Auto Replace Plants"] ~= nil then
         S.autoReplacePlants = m["Auto Replace Plants"] == true
         if autoReplaceControl then autoReplaceControl:Set(S.autoReplacePlants, false) end
+    end
+    if m["Replace Field With Target"] ~= nil then
+        S.replaceFieldWithTarget = m["Replace Field With Target"] == true
+        if replaceFieldControl then replaceFieldControl:Set(S.replaceFieldWithTarget, false) end
     end
     if misc["Auto Daily Deal"] ~= nil then S.autoDaily = misc["Auto Daily Deal"] == true end
 
@@ -2478,6 +2484,7 @@ end
 local plantBlockedUntil = {}
 local plantCapBlockedUntil = 0
 local plantNoProgress = 0
+local replacementSlotPending = false
 local PLANT_CONFIRM_DELAY = 0.25
 local PLANT_NO_PROGRESS_LIMIT = 3
 local function seedPlantBlocked(seedName)
@@ -2534,7 +2541,10 @@ local function stepPlant()
     Stats.state = "PLANT"
     if plantCapBlocked() then
         Stats.lastAction = "plant cap reached"
-        if S.autoReplacePlants then stepShovelForPlanting(nil) end
+        if S.autoReplacePlants and not replacementSlotPending then
+            local replacement = pickPlantTool()
+            stepShovelForPlanting(replacement and replacement:GetAttribute("SeedTool") or nil)
+        end
         return
     end
     local _, totalPlants = plantCounts()
@@ -2554,6 +2564,15 @@ local function stepPlant()
     tool = heldToolByAttr("SeedTool"); if not tool then return end
     local seedAttr = tool:GetAttribute("SeedTool")
     if not seedAttr then return end
+    -- Conversion mode removes one non-target plant, then reserves that slot
+    -- for the selected seed before another plant can be removed.
+    if S.autoReplacePlants and S.replaceFieldWithTarget and not replacementSlotPending then
+        if stepShovelForPlanting(seedAttr, 1) > 0 then
+            replacementSlotPending = true
+            Stats.lastAction = "replacing field with " .. tostring(seedAttr)
+            return
+        end
+    end
     local empty = emptyPlantPositions(S.plantSpacing)
     if #empty == 0 then
         stepShovelForPlanting(seedAttr)
@@ -2591,6 +2610,7 @@ local function stepPlant()
             local seedsAfter = seedToolCount(seedAttr)
             if plantsAfter > plantsBefore or seedsAfter < seedsBefore then
                 plantNoProgress = 0
+                replacementSlotPending = false
                 Stats.planted += 1
                 Stats.lastAction = "planted " .. tostring(seedAttr)
                 task.wait(jitter(0.025, 0.055))
@@ -3605,16 +3625,18 @@ local settingsTab = ui:Tab("Atur")
 currentPreset = currentPreset or "Manual"
 local function setManualOff()
     S.autoFarm = false; S.autoBuy = false; S.autoPlant = false; S.autoHarvest = false; S.autoSell = false
-    S.autoExpand = false; S.autoDaily = false; S.autoReplacePlants = false; S.autoSprinkler = false; S.autoWater = false; S.autoSkill = false
+    S.autoExpand = false; S.autoDaily = false; S.autoReplacePlants = false; S.replaceFieldWithTarget = false; S.autoSprinkler = false; S.autoWater = false; S.autoSkill = false
     S.autoEquipPets = false; S.autoPetSlot = false; S.autoBuyPets = false; S.autoSellPets = false
     for k in pairs(S.buyPets) do S.buyPets[k] = nil end
     S.autoEgg = false; S.autoCrate = false; S.autoPack = false; S.autoGear = false; S.autoSteal = false
     S.autoMail = false; S.autoAcceptGift = false; S.autoHop = false; S.allowServerHop = false; S.autoCodes = false; S.ultraPerformance = false
+    replacementSlotPending = false
     if autoFarmControl then autoFarmControl:Set(false, false) end
     if autoPlantControl then autoPlantControl:Set(false, false) end
     if autoHarvestControl then autoHarvestControl:Set(false, false) end
     if autoSellControl then autoSellControl:Set(false, false) end
     if autoReplaceControl then autoReplaceControl:Set(false, false) end
+    if replaceFieldControl then replaceFieldControl:Set(false, false) end
     currentPreset = "Manual"
     warn("[GAGConfig] Manual selected: all automation OFF")
 end
@@ -3622,6 +3644,7 @@ local function applyGuiPreset(name)
     if name == "Manual" then
         setManualOff()
     else
+        replacementSlotPending = false
         gagApplyConfig({ Preset = name })
         currentPreset = name
         warn("[GAGConfig] GUI preset selected: " .. tostring(name))
@@ -3706,6 +3729,7 @@ autoHarvestControl = secPlant:Toggle("Panen Buah Matang", S.autoHarvest, functio
 autoSellControl = secPlant:Toggle("Jual Otomatis", S.autoSell, function(v) S.autoSell = v end)
 secPlant:Slider("Jual Saat Buah", 85, 1, 200, function(v) S.sellAt = math.floor(v) end)
 autoReplaceControl = secPlant:Toggle("Ganti Tanaman Saat Penuh", S.autoReplacePlants, function(v) S.autoReplacePlants = v end)
+replaceFieldControl = secPlant:Toggle("Ganti Field ke Seed Pilihan", S.replaceFieldWithTarget, function(v) S.replaceFieldWithTarget = v end)
 
 local secSpeed = farmTab:Section("Kecepatan & Debug (Lanjutan)")
 secSpeed:Toggle("Panen Cepat untuk Kebun Besar", true, function(v) S.spamHarvest = v end)
