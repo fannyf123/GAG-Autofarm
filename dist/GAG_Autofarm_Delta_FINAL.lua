@@ -2146,7 +2146,7 @@ local S = {
     autoPlant = false, plantSpacing = 4, plantSeed = "Best owned", plantPlan = {}, plantLimit = 0, keepSeeds = {}, minimumSeed = "",
     autoHarvest = false, harvestInterval = 2, harvestDelay = 0, spamHarvest = true, turboFarm = true, spamHarvestBatch = 50, onlyHarvest = {}, dontHarvest = {}, neverSellFruit = {}, neverSellMut = {},
     autoSell = false, sellAt = 85, sellInterval = 15,
-    autoExpand = false, autoPot = false, autoDaily = false, autoReplacePlants = false, replaceFieldWithTarget = false, shovelPerCycle = 8,
+    autoExpand = false, autoPot = false, autoDaily = false, autoGardenTeleport = true, autoReplacePlants = false, replaceFieldWithTarget = false, shovelPerCycle = 8,
     -- boosts
     autoSprinkler = false, sprinklerInterval = 30, sprinklerTarget = 4, bestSprinklerUpTo = "",
     autoWater = false, waterInterval = 8,
@@ -2738,6 +2738,15 @@ local function stepHarvest(list)
             pcall(sellAllNow)
         end
         return
+    end
+    if S.autoGardenTeleport and due("harvestGardenTeleport", 3) then
+        local char = LocalPlayer.Character
+        local base, root = myBasePos(), char and char:FindFirstChild("HumanoidRootPart")
+        if base and root and (root.Position - base).Magnitude > 55 then
+            pcall(function() root.CFrame = CFrame.new(base + Vector3.new(0, 4, 0)) end)
+            Stats.lastAction = "teleported to garden for harvest"
+            task.wait(0.35)
+        end
     end
     local cap = maxFruitCap()
     local sellAt = math.min(S.sellAt or 85, cap)
@@ -3775,6 +3784,7 @@ statLabel = secStatus:Label("—")
 local secMaster = farmTab:Section("1. Jalankan Farm")
 secMaster:Label("Paling mudah: aktifkan Auto-Farm, lalu pilih seed di bawah.")
 farmControls.autoFarm = secMaster:Toggle("Auto-Farm", S.autoFarm, function(v) S.autoFarm = v end)
+secMaster:Toggle("Teleport ke Kebun Saat Panen", S.autoGardenTeleport, function(v) S.autoGardenTeleport = v end)
 secMaster:Toggle("Perluas Kebun Otomatis", false, function(v) S.autoExpand = v end)
 secMaster:Toggle("Daily Deal Otomatis", false, function(v) S.autoDaily = v end)
 
