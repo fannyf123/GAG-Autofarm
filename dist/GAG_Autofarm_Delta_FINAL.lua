@@ -2520,6 +2520,7 @@ local function canPlantNow()
     return S.autoReplacePlants == true
 end
 
+local harvestSellPending
 local function stepPlant()
     Stats.state = "PLANT"
     if plantCapBlocked() then
@@ -2551,6 +2552,10 @@ local function stepPlant()
     end
     for _, pos in ipairs(empty) do
         if not (S.autoFarm or S.autoPlant) then break end
+        if harvestSellPending and harvestSellPending() then
+            Stats.lastAction = "plant paused: harvest/sell priority"
+            break
+        end
         if not heldToolByAttr("SeedTool") then
                 local nx = pickPlantTool(); if not nx then return end
                 pcall(function() hum:EquipTool(nx) end)
@@ -2597,6 +2602,20 @@ end
 
 local function maxFruitCap() return tonumber(LocalPlayer:GetAttribute("MaxFruitCapacity")) or 100 end
 local function fruitCount()  return tonumber(LocalPlayer:GetAttribute("FruitCount")) or 0 end
+harvestSellPending = function()
+    local sellAt = math.min(S.sellAt or 85, maxFruitCap())
+    if (S.autoFarm or S.autoSell) and fruitCount() >= sellAt then return true end
+    if not (S.autoFarm or S.autoHarvest) then return false end
+    for _, h in ipairs(ripeHarvests()) do
+        if (not picked(S.onlyHarvest) or S.onlyHarvest[h.name])
+            and not S.dontHarvest[h.name]
+            and not S.neverSellFruit[h.name]
+            and not S.neverSellMut[h.mutation] then
+            return true
+        end
+    end
+    return false
+end
 local function sellAllNow()
     Stats.state = "SELL"
     if picked(S.neverSellFruit) or picked(S.neverSellMut) then
@@ -2674,8 +2693,9 @@ end
 
 task.spawn(function()
     while not S.killed do
-        if not S.turboFarm and (S.autoFarm or S.autoBuy)     then pcall(stepBuy) end
-        if not S.turboFarm and (S.autoFarm or S.autoPlant)   then pcall(stepPlant) end
+        local priority = harvestSellPending()
+        if not priority and not S.turboFarm and (S.autoFarm or S.autoBuy)   then pcall(stepBuy) end
+        if not priority and not S.turboFarm and (S.autoFarm or S.autoPlant) then pcall(stepPlant) end
         if S.autoFarm or S.autoExpand  then pcall(stepExpand) end
         if S.autoFarm or S.autoDaily   then pcall(stepDaily) end
         task.wait(0.08)
@@ -2703,7 +2723,7 @@ end)
 task.spawn(function()
     while not S.killed do
         if S.turboFarm and (S.autoFarm or S.autoHarvest) then
-            if #ripeHarvests() > 0 or fruitCount() >= maxFruitCap() - 1 then
+            if harvestSellPending() then
                 pcall(stepHarvest)
                 task.wait(0.005)
             else
@@ -2718,7 +2738,7 @@ end)
 task.spawn(function()
     while not S.killed do
         if S.turboFarm and (S.autoFarm or S.autoPlant) then
-            if canPlantNow() then
+            if not harvestSellPending() and canPlantNow() then
                 pcall(stepPlant)
                 task.wait(0.02)
             else
@@ -2748,7 +2768,7 @@ end)
 task.spawn(function()
     while not S.killed do
         if S.turboFarm and (S.autoFarm or S.autoBuy) then
-            if canBuyAnySeed() then
+            if not harvestSellPending() and canBuyAnySeed() then
                 pcall(stepBuy)
                 task.wait(0.05)
             else
