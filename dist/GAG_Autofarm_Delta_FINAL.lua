@@ -2412,10 +2412,19 @@ local function stepBuy()
         if S.buySeeds[s.name] then
             local stock, bought = stockOf("SeedShop", s.name), 0
             while bought < S.buyPerTick do
-                if stock ~= nil and stock <= 0 then break end
-                if s.price > 0 and getSheckles() < s.price then break end
+                if stock ~= nil and stock <= 0 then
+                    Stats.lastAction = "seed out of stock " .. tostring(s.name)
+                    break
+                end
+                if s.price > 0 and getSheckles() < s.price then
+                    Stats.lastAction = "not enough sheckles for " .. tostring(s.name)
+                    break
+                end
                 local ok = buySeedOnce(s.name)
-                if not ok then break end
+                if not ok then
+                    Stats.lastAction = "buy seed failed " .. tostring(s.name)
+                    break
+                end
                 Stats.bought += 1; bought += 1; Stats.lastAction = "bought seed " .. tostring(s.name)
                 if stock ~= nil then stock -= 1 end
                 task.wait(jitter(0.04, 0.09))
@@ -2694,7 +2703,9 @@ end
 task.spawn(function()
     while not S.killed do
         local priority = harvestSellPending()
-        if not priority and not S.turboFarm and (S.autoFarm or S.autoBuy)   then pcall(stepBuy) end
+        -- Buying is low-volume and does not consume fruit capacity. Let it run
+        -- while harvesting so a permanently ripe garden cannot starve seeds.
+        if not S.turboFarm and (S.autoFarm or S.autoBuy)                    then pcall(stepBuy) end
         if not priority and not S.turboFarm and (S.autoFarm or S.autoPlant) then pcall(stepPlant) end
         if S.autoFarm or S.autoExpand  then pcall(stepExpand) end
         if S.autoFarm or S.autoDaily   then pcall(stepDaily) end
@@ -2768,7 +2779,7 @@ end)
 task.spawn(function()
     while not S.killed do
         if S.turboFarm and (S.autoFarm or S.autoBuy) then
-            if not harvestSellPending() and canBuyAnySeed() then
+            if canBuyAnySeed() then
                 pcall(stepBuy)
                 task.wait(0.05)
             else
