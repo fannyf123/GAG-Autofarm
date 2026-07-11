@@ -2279,6 +2279,23 @@ local function gagApplyConfig(raw)
     local misc, perf = cfg.Misc or {}, cfg.Performance or {}
     local webhook = cfg.Webhook or cfg.webhook or {}
 
+    -- Presets are complete modes. Clear options from the previous mode before
+    -- applying the selected mode so, for example, Balanced's Bamboo target
+    -- cannot leak into Starter.
+    if presetName and GAG_PRESETS[presetName] then
+        S.autoBuy = false; gagSetMapFromList(S.buySeeds, {})
+        S.plantSeed = "Best owned"; S.plantPlan = {}; S.minimumSeed = ""; S.keepSeeds = {}; S.plantLimit = 0
+        gagSetMapFromList(S.onlyHarvest, {}); gagSetMapFromList(S.dontHarvest, {})
+        gagSetMapFromList(S.neverSellFruit, {}); gagSetMapFromList(S.neverSellMut, {})
+        S.autoExpand = false; S.autoDaily = false; S.autoReplacePlants = false; S.replaceFieldWithTarget = false
+        S.autoSprinkler = false; S.sprinklerTarget = 4; S.bestSprinklerUpTo = ""; S.autoGear = false; gagSetMapFromList(S.gearBuy, {})
+        S.autoBuyPets = false; S.autoEquipPets = false; S.autoPetSlot = false; S.maxPetPrice = 25000
+        gagSetMapFromList(S.buyPets, {}); gagSetMapFromList(S.equipPets, {})
+        S.autoEventSeedClaim = false; S.autoMail = false; S.mailSendTo = ""; S.mailSend = {}
+        if farmControls.autoReplace then farmControls.autoReplace:Set(false, false) end
+        if farmControls.replaceField then farmControls.replaceField:Set(false, false) end
+    end
+
     if h["Auto Harvest"] ~= nil then S.autoHarvest = h["Auto Harvest"] == true; S.autoSell = S.autoHarvest end
     if h["Sell At"] ~= nil then S.sellAt = math.max(1, tonumber(h["Sell At"]) or S.sellAt) end
     if h["Sell Every"] ~= nil then S.sellInterval = math.max(3, tonumber(h["Sell Every"]) or S.sellInterval) end
